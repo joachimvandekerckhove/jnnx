@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "input_scaler": {
+    "type": "MinMaxScaler",
+    "data_min": [
+      0.5,
+      -5.0,
+      0.0,
+      0.0
+    ],
+    "data_max": [
+      5.0,
+      5.0,
+      1.0,
+      1.0
+    ],
+    "feature_range": [
+      0.0,
+      1.0
+    ]
+  },
+  "output_scaler": {
+    "type": "MinMaxScaler",
+    "data_min": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "data_max": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "feature_range": [
+      0.0,
+      1.0
+    ]
+  },
+  "metadata": {
+    "created_by": "jnnx-tools",
+    "created_at": "2025-10-27T14:42:06.159210",
+    "source_file": "models/ddm4.jnnx/ddm4_emulator.pth",
+    "description": "Default scalers (no scaling) for ddm4_emulator.pth",
+    "note": "Original scalers could not be extracted"
+  }
+}
