@@ -167,13 +167,8 @@ public:
     }
 };
 
+// Global module instance for automatic registration
+{{MODULE_CLASS}} _{{MODULE_NAME}}_module;
+
 } // namespace {{MODULE_NAME}}
 } // namespace jags
-
-// Factory function
-extern "C" {
-    jags::Module* load_module()
-    {
-        return new jags::{{MODULE_NAME}}::{{MODULE_CLASS}};
-    }
-}
