@@ -1,0 +1,65 @@
+// Simple test module for JAGS
+// Auto-generated from jnnx template
+
+#include <module/Module.h>
+#include <function/ScalarFunction.h>
+#include <vector>
+#include <string>
+#include <iostream>
+
+namespace jags {
+namespace {{MODULE_NAME}} {
+
+// Simple test function class
+class {{FUNCTION_CLASS}} : public ScalarFunction
+{
+public:
+    {{FUNCTION_CLASS}}() : ScalarFunction("{{FUNCTION_NAME}}", {{INPUT_DIM}})
+    {
+    }
+    
+    bool checkParameterValue(std::vector<double const *> const &args) const
+    {
+        return true;
+    }
+    
+    double evaluate(std::vector<double const *> const &args) const
+    {
+        // Simple test: return sum of arguments
+        double result = 0.0;
+        for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
+            result += *args[i];
+        }
+        return result;
+    }
+};
+
+// Module class
+class {{MODULE_CLASS}} : public Module
+{
+public:
+    {{MODULE_CLASS}}() : Module("{{MODULE_NAME}}")
+    {
+        insert(new {{FUNCTION_CLASS}}());
+    }
+    
+    ~{{MODULE_CLASS}}()
+    {
+        std::vector<Function*> const &fvec = functions();
+        for (unsigned int i = 0; i < fvec.size(); ++i) {
+            delete fvec[i];
+        }
+    }
+};
+
+}} // namespace jags::{{MODULE_NAME}}
+
+// Module factory function
+jags::{{MODULE_NAME}}::{{MODULE_CLASS}} _{{MODULE_NAME}}_module;
+
+extern "C" {
+    void jags_module_load()
+    {
+        std::cout << "{{BANNER_STRING}}" << std::endl;
+    }
+}

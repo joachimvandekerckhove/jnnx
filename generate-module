@@ -63,9 +63,22 @@ def format_array(arr):
     """Format array for C++ code."""
     if isinstance(arr, str):
         # Handle string representations like "[-Inf, -Inf]"
-        arr = arr.replace('Inf', '1e308').replace('-Inf', '-1e308')
+        arr = arr.replace('Inf', '1e38').replace('-Inf', '-1e38')
         arr = json.loads(arr)
-    return '{' + ', '.join(str(x) for x in arr) + '}'
+    
+    formatted = []
+    for x in arr:
+        if isinstance(x, (int, float)):
+            if x == 0:
+                formatted.append('0.0f')
+            elif x == 1:
+                formatted.append('1.0f')
+            else:
+                formatted.append(f'{x}f')
+        else:
+            formatted.append(str(x))
+    
+    return '{' + ', '.join(formatted) + '}'
 
 
 def generate_module_code(config, onnx_file, pth_file, output_dir):

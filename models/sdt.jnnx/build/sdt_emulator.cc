@@ -1,12 +1,12 @@
 // JAGS module for sdt_emulator
 // Auto-generated from jnnx template
 
-#include <Module.h>
+#include <module/Module.h>
 #include <function/ScalarFunction.h>
 #include <onnxruntime_cxx_api.h>
-#include <torch/torch.h>
 #include <vector>
 #include <string>
+#include <iostream>
 
 namespace jags {
 namespace sdt_emulator {
@@ -36,10 +36,10 @@ public:
         // TODO: Implement scaler loading
         
         // Set bounds
-        input_min = {-1e+308, -1e+308};
-        input_max = {1e+308, 1e+308};
-        output_min = {0, 0};
-        output_max = {1, 1};
+        input_min = {-1e+38f, -1e+38f};
+        input_max = {1e+38f, 1e+38f};
+        output_min = {0.0f, 0.0f};
+        output_max = {1.0f, 1.0f};
     }
     
     ~SDT_Function()

@@ -1,12 +1,12 @@
 // JAGS module for {{MODULE_NAME}}
 // Auto-generated from jnnx template
 
-#include <Module.h>
+#include <module/Module.h>
 #include <function/ScalarFunction.h>
 #include <onnxruntime_cxx_api.h>
-#include <torch/torch.h>
 #include <vector>
 #include <string>
+#include <iostream>
 
 namespace jags {
 namespace {{MODULE_NAME}} {
