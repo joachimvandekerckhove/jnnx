@@ -63,7 +63,7 @@ def update_scalers_in_json(jnnx_dir):
         # Create default scalers based on JSON dimensions
         input_dim = config.get('input_dimensions', 2)
         output_dim = config.get('output_dimensions', 2)
-        scalers_data = create_default_scalers(input_dim, output_dim, pth_file)
+        scalers_data = create_default_scalers(input_dim, output_dim, pth_file, config)
     
     # Update the scalers section in the configuration
     config['scalers'] = scalers_data
@@ -128,13 +128,36 @@ def extract_scalers_from_pth(pth_file):
         print(f"Error extracting scalers from .pth file: {e}")
         return None
 
-def create_default_scalers(input_dim, output_dim, pth_file):
-    """Create default scalers (no scaling)."""
+def create_default_scalers(input_dim, output_dim, pth_file, config):
+    """Create default scalers matching input limits."""
+    # Use input limits if available, otherwise use [0,1] range
+    input_min = config.get('input_limits_min', [0.0] * input_dim)
+    input_max = config.get('input_limits_max', [1.0] * input_dim)
+    
+    # Parse string representations if needed
+    if isinstance(input_min, str):
+        try:
+            input_min = json.loads(input_min)
+        except:
+            input_min = [0.0] * input_dim
+    
+    if isinstance(input_max, str):
+        try:
+            input_max = json.loads(input_max)
+        except:
+            input_max = [1.0] * input_dim
+    
+    # Ensure correct dimensions
+    if len(input_min) != input_dim:
+        input_min = [0.0] * input_dim
+    if len(input_max) != input_dim:
+        input_max = [1.0] * input_dim
+    
     return {
         "input_scaler": {
             "type": "MinMaxScaler",
-            "data_min": [0.0] * input_dim,
-            "data_max": [1.0] * input_dim,
+            "data_min": input_min,
+            "data_max": input_max,
             "feature_range": [0.0, 1.0]
         },
         "output_scaler": {
@@ -147,8 +170,8 @@ def create_default_scalers(input_dim, output_dim, pth_file):
             "created_by": "jnnx-tools",
             "created_at": datetime.now().isoformat(),
             "source_file": str(pth_file),
-            "description": f"Default scalers (no scaling) for {pth_file.name}",
-            "note": "Original scalers could not be extracted"
+            "description": f"Default scalers matching input limits for {pth_file.name}",
+            "note": "Original scalers could not be extracted, using input_limits_min/max"
         }
     }
 

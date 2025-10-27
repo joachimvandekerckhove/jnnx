@@ -35,14 +35,14 @@
     "input_scaler": {
       "type": "MinMaxScaler",
       "data_min": [
-        0.0,
-        0.0,
+        0.5,
+        -5.0,
         0.0,
         0.0
       ],
       "data_max": [
-        1.0,
-        1.0,
+        5.0,
+        5.0,
         1.0,
         1.0
       ],
@@ -74,10 +74,10 @@
     },
     "metadata": {
       "created_by": "jnnx-tools",
-      "created_at": "2025-10-27T14:46:35.335441",
+      "created_at": "2025-10-27T14:51:46.093559",
       "source_file": "models/ddm4.jnnx/ddm4_emulator.pth",
-      "description": "Default scalers (no scaling) for ddm4_emulator.pth",
-      "note": "Original scalers could not be extracted"
+      "description": "Default scalers matching input limits for ddm4_emulator.pth",
+      "note": "Original scalers could not be extracted, using input_limits_min/max"
     }
   }
 }
