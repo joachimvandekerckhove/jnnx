@@ -104,7 +104,21 @@ def update_jnnx_scalers(jnnx_dir):
     with open(scalers_file, 'wb') as f:
         pickle.dump(scalers_data, f)
     
+    # Save scalers to text file (as per jnnx-format-spec.md)
+    scalers_txt_file = jnnx_path / "scalers.txt"
+    with open(scalers_txt_file, 'w') as f:
+        # Write in order: x_min, x_max, y_min, y_max (as per spec)
+        for value in scalers_data['x_min']:
+            f.write(f"{value}\n")
+        for value in scalers_data['x_max']:
+            f.write(f"{value}\n")
+        for value in scalers_data['y_min']:
+            f.write(f"{value}\n")
+        for value in scalers_data['y_max']:
+            f.write(f"{value}\n")
+    
     print(f"✓ Scalers updated successfully in {scalers_file}")
+    print(f"✓ Scalers text file created: {scalers_txt_file}")
     print(f"  Input scalers: min={scalers_data['x_min']}, max={scalers_data['x_max']}")
     print(f"  Output scalers: min={scalers_data['y_min']}, max={scalers_data['y_max']}")
     
@@ -126,7 +140,7 @@ def main():
     if update_jnnx_scalers(jnnx_dir):
         print("\n✓ Scaler update complete!")
         print(f"  Directory: {jnnx_dir}")
-        print(f"  Updated: scalers.pkl")
+        print(f"  Updated: scalers.pkl, scalers.txt")
     else:
         print("\n✗ Scaler update failed.")
 
