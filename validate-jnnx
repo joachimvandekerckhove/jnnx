@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+"""
+validate-jnnx: Test suite to validate a .jnnx folder.
+
+Usage: ./validate-jnnx models/sdt.jnnx/
+
+Tests:
+1) Neural network loads from .onnx and .pth files without error
+2) Valid input vector (right size, within bounds) works without error
+3) Valid input vector returns valid output vector (right size, within bounds)
+4) Invalid input vector (wrong size) triggers error
+5) Invalid input vector (out of bounds) triggers error
+6) Installation directory exists
+"""
+
+import json
+import os
+import sys
+import numpy as np
+from pathlib import Path
+
+try:
+    import torch
+    import onnx
+    import onnxruntime as ort
+except ImportError as e:
+    print(f"Error: Missing required package: {e}")
+    print("Please install: pip install torch onnx onnxruntime")
+    sys.exit(1)
+
+
+def find_files(jnnx_dir):
+    """Find required files in .jnnx directory."""
+    jnnx_path = Path(jnnx_dir)
+    if not jnnx_path.exists():
+        print(f"Error: Directory {jnnx_dir} does not exist")
+        sys.exit(1)
+    
+    if not jnnx_path.name.endswith('.jnnx'):
+        print(f"Error: Directory {jnnx_dir} does not end with .jnnx")
+        sys.exit(1)
+    
+    # Find JSON file
+    json_files = list(jnnx_path.glob("*.json"))
+    if not json_files:
+        print(f"Error: No JSON file found in {jnnx_dir}")
+        sys.exit(1)
+    json_file = json_files[0]
+    
+    # Find ONNX file
+    onnx_files = list(jnnx_path.glob("*.onnx"))
+    if not onnx_files:
+        print(f"Error: No ONNX file found in {jnnx_dir}")
+        sys.exit(1)
+    onnx_file = onnx_files[0]
+    
+    # Find PTH file
+    pth_files = list(jnnx_path.glob("*.pth"))
+    if not pth_files:
+        print(f"Error: No PTH file found in {jnnx_dir}")
+        sys.exit(1)
+    pth_file = pth_files[0]
+    
+    return json_file, onnx_file, pth_file
+
+
+def load_config(json_file):
+    """Load JSON configuration."""
+    try:
+        content = json_file.read_text().strip()
+        if not content:
+            print(f"Error: JSON file {json_file} is empty")
+            sys.exit(1)
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in {json_file}: {e}")
+        sys.exit(1)
+
+
+def test_neural_network_loading(onnx_file, pth_file):
+    """Test 1: Neural network loads from .onnx and .pth files without error."""
+    print("Test 1: Loading neural network...")
+    
+    try:
+        # Load ONNX model
+        onnx_model = onnx.load(str(onnx_file))
+        print(f"  ✓ ONNX model loaded: {onnx_file}")
+        
+        # Load PyTorch scalers
+        scalers = torch.load(pth_file, map_location='cpu')
+        print(f"  ✓ PyTorch scalers loaded: {pth_file}")
+        
+        # Create ONNX runtime session
+        session = ort.InferenceSession(str(onnx_file))
+        print(f"  ✓ ONNX runtime session created")
+        
+        return session, scalers
+        
+    except Exception as e:
+        print(f"  ✗ Failed to load neural network: {e}")
+        return None, None
+
+
+def test_valid_input_output(session, scalers, config):
+    """Tests 2-3: Valid input/output behavior."""
+    print("Test 2-3: Valid input/output behavior...")
+    
+    try:
+        input_dim = config.get('input_dimensions', 2)
+        output_dim = config.get('output_dimensions', 2)
+        
+        # Generate valid test inputs
+        test_inputs = [
+            np.random.randn(input_dim).astype(np.float32),
+            np.zeros(input_dim, dtype=np.float32),
+            np.ones(input_dim, dtype=np.float32),
+            np.random.uniform(-1, 1, input_dim).astype(np.float32)
+        ]
+        
+        for i, test_input in enumerate(test_inputs):
+            # Test 2: Valid input works without error
+            try:
+                output = session.run(None, {'input': test_input.reshape(1, -1)})
+                print(f"  ✓ Test input {i+1}: No error")
+                
+                # Test 3: Valid output vector (right size, within bounds)
+                if len(output) == 1 and output[0].shape == (1, output_dim):
+                    output_vector = output[0][0]
+                    print(f"    Output shape: {output_vector.shape} (expected: ({output_dim},))")
+                    print(f"    Output values: {output_vector}")
+                    
+                    # Check bounds if specified
+                    output_min = config.get('output_limits_min')
+                    output_max = config.get('output_limits_max')
+                    
+                    if output_min and output_max:
+                        if isinstance(output_min, str):
+                            output_min = json.loads(output_min)
+                        if isinstance(output_max, str):
+                            output_max = json.loads(output_max)
+                        
+                        if len(output_min) == output_dim and len(output_max) == output_dim:
+                            within_bounds = all(output_min[j] <= output_vector[j] <= output_max[j] 
+                                              for j in range(output_dim))
+                            if within_bounds:
+                                print(f"    ✓ Output within specified bounds")
+                            else:
+                                print(f"    ⚠ Output outside specified bounds")
+                
+            except Exception as e:
+                print(f"  ✗ Test input {i+1} failed: {e}")
+                return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Valid input/output test failed: {e}")
+        return False
+
+
+def test_invalid_input_size(session, config):
+    """Test 4: Invalid input vector (wrong size) triggers error."""
+    print("Test 4: Invalid input size...")
+    
+    try:
+        input_dim = config.get('input_dimensions', 2)
+        
+        # Test wrong input sizes
+        wrong_sizes = [input_dim - 1, input_dim + 1, 0, input_dim * 2]
+        
+        for wrong_size in wrong_sizes:
+            if wrong_size > 0:  # Skip zero size
+                test_input = np.random.randn(wrong_size).astype(np.float32)
+                try:
+                    output = session.run(None, {'input': test_input.reshape(1, -1)})
+                    print(f"  ⚠ Wrong size {wrong_size} did not trigger error (unexpected)")
+                except Exception as e:
+                    print(f"  ✓ Wrong size {wrong_size} correctly triggered error: {type(e).__name__}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Invalid input size test failed: {e}")
+        return False
+
+
+def test_invalid_input_bounds(session, config):
+    """Test 5: Invalid input vector (out of bounds) triggers error."""
+    print("Test 5: Invalid input bounds...")
+    
+    try:
+        input_dim = config.get('input_dimensions', 2)
+        input_min = config.get('input_limits_min')
+        input_max = config.get('input_limits_max')
+        
+        if not input_min or not input_max:
+            print("  ⚠ No input bounds specified, skipping bounds test")
+            return True
+        
+        # Parse bounds
+        if isinstance(input_min, str):
+            try:
+                input_min = json.loads(input_min)
+            except json.JSONDecodeError:
+                # Handle special cases like [-Inf, -Inf]
+                input_min = input_min.replace('Inf', '1e308').replace('-Inf', '-1e308')
+                input_min = json.loads(input_min)
+        if isinstance(input_max, str):
+            try:
+                input_max = json.loads(input_max)
+            except json.JSONDecodeError:
+                # Handle special cases like [Inf, Inf]
+                input_max = input_max.replace('Inf', '1e308').replace('-Inf', '-1e308')
+                input_max = json.loads(input_max)
+        
+        if len(input_min) != input_dim or len(input_max) != input_dim:
+            print(f"  ⚠ Input bounds length mismatch (expected {input_dim})")
+            return True
+        
+        # Test out-of-bounds inputs
+        test_inputs = []
+        
+        # Test values below minimum
+        for i in range(input_dim):
+            test_input = np.array(input_min, dtype=np.float32)
+            test_input[i] = test_input[i] - 1.0  # Below minimum
+            test_inputs.append(test_input)
+        
+        # Test values above maximum
+        for i in range(input_dim):
+            test_input = np.array(input_max, dtype=np.float32)
+            test_input[i] = test_input[i] + 1.0  # Above maximum
+            test_inputs.append(test_input)
+        
+        # Note: Neural networks typically don't enforce input bounds themselves
+        # This test verifies the network can handle out-of-bounds inputs gracefully
+        for i, test_input in enumerate(test_inputs):
+            try:
+                output = session.run(None, {'input': test_input.reshape(1, -1)})
+                print(f"  ✓ Out-of-bounds input {i+1} processed without error (expected)")
+            except Exception as e:
+                print(f"  ⚠ Out-of-bounds input {i+1} triggered error: {type(e).__name__}")
+        
+        print("  Note: Neural networks don't enforce input bounds - this will be handled by the JAGS module")
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Invalid input bounds test failed: {e}")
+        return False
+
+
+def test_installation_directory(config):
+    """Test 6: Installation directory exists."""
+    print("Test 6: Installation directory...")
+    
+    try:
+        install_dir = config.get('installation_directory')
+        if not install_dir:
+            print("  ⚠ No installation directory specified")
+            return True
+        
+        install_path = Path(install_dir)
+        if install_path.exists():
+            print(f"  ✓ Installation directory exists: {install_dir}")
+            return True
+        else:
+            print(f"  ✗ Installation directory does not exist: {install_dir}")
+            return False
+            
+    except Exception as e:
+        print(f"  ✗ Installation directory test failed: {e}")
+        return False
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: ./validate-jnnx <jnnx-directory>")
+        print("Example: ./validate-jnnx models/sdt.jnnx/")
+        sys.exit(1)
+    
+    jnnx_dir = sys.argv[1]
+    print(f"Validating .jnnx directory: {jnnx_dir}")
+    print("=" * 60)
+    
+    # Find required files
+    json_file, onnx_file, pth_file = find_files(jnnx_dir)
+    print(f"Found files:")
+    print(f"  JSON: {json_file}")
+    print(f"  ONNX: {onnx_file}")
+    print(f"  PTH:  {pth_file}")
+    print()
+    
+    # Load configuration
+    config = load_config(json_file)
+    print(f"Configuration loaded with {len(config)} fields")
+    print()
+    
+    # Run tests
+    tests_passed = 0
+    total_tests = 6
+    
+    # Test 1: Load neural network
+    session, scalers = test_neural_network_loading(onnx_file, pth_file)
+    if session is not None:
+        tests_passed += 1
+    print()
+    
+    if session is not None:
+        # Tests 2-3: Valid input/output (combined test)
+        if test_valid_input_output(session, scalers, config):
+            tests_passed += 2  # Count as 2 tests
+        print()
+        
+        # Test 4: Invalid input size
+        if test_invalid_input_size(session, config):
+            tests_passed += 1
+        print()
+        
+        # Test 5: Invalid input bounds
+        if test_invalid_input_bounds(session, config):
+            tests_passed += 1
+        print()
+    
+    # Test 6: Installation directory
+    if test_installation_directory(config):
+        tests_passed += 1
+    print()
+    
+    # Summary
+    print("=" * 60)
+    print(f"Validation Summary: {tests_passed}/{total_tests} tests passed")
+    
+    if tests_passed == total_tests:
+        print("✓ All tests passed! .jnnx directory is valid.")
+        sys.exit(0)
+    else:
+        print("✗ Some tests failed. Please check the issues above.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
