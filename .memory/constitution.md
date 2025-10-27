@@ -48,6 +48,7 @@ within this project.  They are not project specifications; those live in
 - When suggesting changes, write commit-style summaries (imperative mood).
 - When generating documentation, limit to one screen length unless explicitly
   asked for more.
+- Never commit to git unless you are explicitly asked.
 
 ---
 

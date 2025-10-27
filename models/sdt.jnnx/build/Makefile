@@ -1,0 +1,56 @@
+# Makefile for sdt_emulator JAGS module
+# Auto-generated from jnnx template
+
+# Module information
+MODULE_NAME = sdt_emulator
+MODULE_SO = $(MODULE_NAME).so
+
+# Installation directory
+INSTALL_DIR = /usr/lib/x86_64-linux-gnu/JAGS/modules-4/
+
+# Compiler and flags
+CXX = g++
+CXXFLAGS = -fPIC -O2 -Wall -std=c++11
+LDFLAGS = -shared
+
+# JAGS configuration
+JAGS_INCLUDE = $(shell pkg-config --cflags jags)
+JAGS_LIBS = $(shell pkg-config --libs jags)
+
+# ONNX Runtime
+ONNX_INCLUDE = -I/usr/local/include/onnxruntime
+ONNX_LIBS = -L/usr/local/lib -lonnxruntime
+
+# PyTorch
+TORCH_INCLUDE = $(shell python3 -c "import torch; print('-I' + torch.__path__[0] + '/include')")
+TORCH_LIBS = $(shell python3 -c "import torch; print('-L' + torch.__path__[0] + '/lib -ltorch -lc10')")
+
+# Combined flags
+ALL_INCLUDES = $(JAGS_INCLUDE) $(ONNX_INCLUDE) $(TORCH_INCLUDE)
+ALL_LIBS = $(JAGS_LIBS) $(ONNX_LIBS) $(TORCH_LIBS)
+
+# Source files
+SOURCES = $(MODULE_NAME).cc
+OBJECTS = $(SOURCES:.cc=.o)
+
+# Targets
+all: $(MODULE_SO)
+
+$(MODULE_SO): $(OBJECTS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(ALL_LIBS)
+
+%.o: %.cc
+	$(CXX) $(CXXFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+install: $(MODULE_SO)
+	mkdir -p $(INSTALL_DIR)
+	cp $(MODULE_SO) $(INSTALL_DIR)/
+
+uninstall:
+	rm -f $(INSTALL_DIR)/$(MODULE_SO)
+
+clean:
+	rm -f $(OBJECTS) $(MODULE_SO)
+
+.PHONY: all install uninstall clean
+
