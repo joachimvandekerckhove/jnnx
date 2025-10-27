@@ -294,40 +294,36 @@ def test_invalid_input_bounds(config):
         return False
 
 
-def load_scaling_parameters(pth_file, input_dim, output_dim):
-    """Load scaling parameters from .pth file (same logic as C++ module)."""
+def load_scaling_parameters(config_file, input_dim, output_dim):
+    """Load scaling parameters from main JSON configuration file."""
     try:
-        import torch
+        with open(config_file, 'r') as f:
+            config = json.load(f)
         
-        # Load the .pth file
-        checkpoint = torch.load(pth_file, map_location='cpu')
-        
-        # Extract scalers from the checkpoint
-        x_scaler = checkpoint.get('x_scaler')
-        y_scaler = checkpoint.get('y_scaler')
-        
-        if x_scaler is None or y_scaler is None:
+        # Check if scalers section exists
+        if 'scalers' not in config:
             return None
         
-        # Extract scaling parameters
-        x_min = x_scaler.data_min_.tolist()
-        x_max = x_scaler.data_max_.tolist()
-        y_min = y_scaler.data_min_.tolist()
-        y_max = y_scaler.data_max_.tolist()
+        scalers = config['scalers']
+        input_scaler = scalers.get('input_scaler')
+        output_scaler = scalers.get('output_scaler')
+        
+        if not input_scaler or not output_scaler:
+            return None
         
         return {
-            'x_min': x_min,
-            'x_max': x_max,
-            'y_min': y_min,
-            'y_max': y_max
+            'x_min': input_scaler['data_min'],
+            'x_max': input_scaler['data_max'],
+            'y_min': output_scaler['data_min'],
+            'y_max': output_scaler['data_max']
         }
         
     except Exception as e:
-        print(f"Warning: Could not load scaling parameters from {pth_file}: {e}")
+        print(f"Warning: Could not load scaling parameters from {config_file}: {e}")
         return None
 
 
-def test_numerical_consistency(config, onnx_file, pth_file):
+def test_numerical_consistency(config, onnx_file, jnnx_dir):
     """Test 6: Output vector is numerically identical to direct Python evaluation."""
     print("Test 6: Numerical consistency with Python...")
     
@@ -340,8 +336,9 @@ def test_numerical_consistency(config, onnx_file, pth_file):
         # Load ONNX model for direct evaluation
         session = ort.InferenceSession(str(onnx_file))
         
-        # Load scaling parameters from .pth file (same as C++ module)
-        scaling_params = load_scaling_parameters(pth_file, input_dim, output_dim)
+        # Load scaling parameters from main JSON configuration file
+        json_file = Path(jnnx_dir) / f"{module_name}.json"
+        scaling_params = load_scaling_parameters(json_file, input_dim, output_dim)
         if not scaling_params:
             print("  ⚠ Could not load scaling parameters, using default (no scaling)")
             scaling_params = {
@@ -490,7 +487,7 @@ def main():
     print()
     
     # Test 6: Numerical consistency
-    if test_numerical_consistency(config, onnx_file, pth_file):
+    if test_numerical_consistency(config, onnx_file, jnnx_dir):
         tests_passed += 1
     print()
     
