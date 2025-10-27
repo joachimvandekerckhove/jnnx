@@ -7,6 +7,8 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <fstream>
+#include <stdexcept>
 
 namespace jags {
 namespace {{MODULE_NAME}} {
@@ -17,13 +19,70 @@ class {{FUNCTION_CLASS}} : public ScalarFunction
 private:
     Ort::Env env;
     Ort::Session* session;
-    std::vector<float> input_min;
-    std::vector<float> input_max;
-    std::vector<float> output_min;
-    std::vector<float> output_max;
+    std::vector<float> x_min;
+    std::vector<float> x_max;
+    std::vector<float> y_min;
+    std::vector<float> y_max;
+    std::string scaling_path;
+    bool scalers_loaded;
+    
+    bool load_scaling_parameters() {
+        try {
+            std::ifstream file(scaling_path);
+            if (!file.is_open()) {
+                throw std::runtime_error("Cannot open scaling file: " + scaling_path);
+            }
+            
+            // Read all values from the file
+            std::vector<double> values;
+            double value;
+            while (file >> value) {
+                values.push_back(value);
+            }
+            file.close();
+            
+            // Expected format: x_min, x_max, y_min, y_max
+            int input_dim = {{INPUT_DIM}};
+            int output_dim = {{OUTPUT_DIM}};
+            int expected_values = 2 * input_dim + 2 * output_dim;
+            
+            if (values.size() != expected_values) {
+                throw std::runtime_error("Expected " + std::to_string(expected_values) + 
+                                       " scaling parameters, got " + std::to_string(values.size()));
+            }
+            
+            // Assign values to member variables
+            x_min.clear();
+            x_max.clear();
+            y_min.clear();
+            y_max.clear();
+            
+            // x_min values (first input_dim values)
+            for (int i = 0; i < input_dim; i++) {
+                x_min.push_back(static_cast<float>(values[i]));
+            }
+            // x_max values (next input_dim values)
+            for (int i = 0; i < input_dim; i++) {
+                x_max.push_back(static_cast<float>(values[input_dim + i]));
+            }
+            // y_min values (next output_dim values)
+            for (int i = 0; i < output_dim; i++) {
+                y_min.push_back(static_cast<float>(values[2 * input_dim + i]));
+            }
+            // y_max values (last output_dim values)
+            for (int i = 0; i < output_dim; i++) {
+                y_max.push_back(static_cast<float>(values[2 * input_dim + output_dim + i]));
+            }
+            
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to load scaling parameters: " << e.what() << std::endl;
+            return false;
+        }
+    }
     
 public:
-    {{FUNCTION_CLASS}}() : ScalarFunction("{{FUNCTION_NAME}}", {{INPUT_DIM}})
+    {{FUNCTION_CLASS}}() : ScalarFunction("{{FUNCTION_NAME}}", {{INPUT_DIM}}), scalers_loaded(false)
     {
         // Initialize ONNX Runtime
         env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "{{MODULE_NAME}}");
@@ -32,14 +91,19 @@ public:
         Ort::SessionOptions session_options;
         session = new Ort::Session(env, "{{ONNX_PATH}}", session_options);
         
-        // Load scalers from PyTorch file
-        // TODO: Implement scaler loading
+        // Set scaling file path
+        scaling_path = "{{SCALING_PATH}}";
         
-        // Set bounds
-        input_min = {{INPUT_MIN}};
-        input_max = {{INPUT_MAX}};
-        output_min = {{OUTPUT_MIN}};
-        output_max = {{OUTPUT_MAX}};
+        // Load scaling parameters
+        scalers_loaded = load_scaling_parameters();
+        if (!scalers_loaded) {
+            std::cerr << "Warning: Could not load scaling parameters, using default values" << std::endl;
+            // Set default scaling (no scaling)
+            x_min.resize({{INPUT_DIM}}, 0.0f);
+            x_max.resize({{INPUT_DIM}}, 1.0f);
+            y_min.resize({{OUTPUT_DIM}}, 0.0f);
+            y_max.resize({{OUTPUT_DIM}}, 1.0f);
+        }
     }
     
     ~{{FUNCTION_CLASS}}()
@@ -49,10 +113,11 @@ public:
     
     bool checkParameterValue(std::vector<double const *> const &args) const
     {
-        // Check input bounds
+        // Check input bounds (optional - neural networks can handle out-of-bounds inputs)
+        // This is mainly for user feedback
         for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
             double val = *args[i];
-            if (val < input_min[i] || val > input_max[i]) {
+            if (std::isnan(val) || std::isinf(val)) {
                 return false;
             }
         }
@@ -61,34 +126,54 @@ public:
     
     double evaluate(std::vector<double const *> const &args) const
     {
-        // Prepare input tensor
-        std::vector<float> input_data({{INPUT_DIM}});
-        for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
-            input_data[i] = static_cast<float>(*args[i]);
+        try {
+            // Prepare input data
+            std::vector<float> input_data({{INPUT_DIM}});
+            for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
+                input_data[i] = static_cast<float>(*args[i]);
+            }
+            
+            // Scale input to [0,1] range using MinMax scaling
+            std::vector<float> input_scaled({{INPUT_DIM}});
+            for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
+                if (x_max[i] - x_min[i] == 0.0f) {
+                    input_scaled[i] = 0.5f;  // Default to middle of range
+                } else {
+                    input_scaled[i] = (input_data[i] - x_min[i]) / (x_max[i] - x_min[i]);
+                }
+            }
+            
+            // Create input tensor for ONNX Runtime
+            std::vector<int64_t> input_shape = {1, {{INPUT_DIM}}};
+            auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+            Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+                memory_info, input_scaled.data(), input_scaled.size(),
+                input_shape.data(), input_shape.size()
+            );
+            
+            // Run neural network inference
+            const char* input_names[] = {"input"};
+            const char* output_names[] = {"output"};
+            
+            auto output_tensors = session->Run(
+                Ort::RunOptions{nullptr},
+                input_names, &input_tensor, 1,
+                output_names, 1
+            );
+            
+            // Get output data from neural network
+            float* output_data = output_tensors[0].GetTensorMutableData<float>();
+            
+            // Scale output back to real-world values (denormalize)
+            double scaled_output = output_data[0] * (y_max[0] - y_min[0]) + y_min[0];
+            
+            return scaled_output;
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error in neural network evaluation: " << e.what() << std::endl;
+            // Return default value on error
+            return 0.5;
         }
-        
-        // Run inference
-        auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-        std::vector<int64_t> input_shape = {1, {{INPUT_DIM}}};
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            memory_info, input_data.data(), input_data.size(),
-            input_shape.data(), input_shape.size()
-        );
-        
-        const char* input_names[] = {"input"};
-        const char* output_names[] = {"output"};
-        
-        auto output_tensors = session->Run(
-            Ort::RunOptions{nullptr},
-            input_names, &input_tensor, 1,
-            output_names, 1
-        );
-        
-        // Extract output
-        float* output_data = output_tensors[0].GetTensorMutableData<float>();
-        
-        // Return first output (for scalar function)
-        return static_cast<double>(output_data[0]);
     }
 };
 

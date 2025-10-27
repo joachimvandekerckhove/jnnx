@@ -81,6 +81,78 @@ def format_array(arr):
     return '{' + ', '.join(formatted) + '}'
 
 
+def extract_scalers_from_pth(pth_file, output_file):
+    """Extract scaler parameters from a .pth file and save to text file."""
+    try:
+        import torch
+        
+        # Load the .pth file
+        checkpoint = torch.load(pth_file, map_location='cpu')
+        
+        # Extract scalers from the checkpoint
+        x_scaler = checkpoint.get('x_scaler')
+        y_scaler = checkpoint.get('y_scaler')
+        
+        if x_scaler is None or y_scaler is None:
+            print(f"Warning: Scalers not found in {pth_file}, using default values")
+            # Create default scaling file
+            input_dim = 2  # Default
+            output_dim = 2  # Default
+            with open(output_file, 'w') as f:
+                # Write default scaling parameters (no scaling)
+                for _ in range(input_dim):
+                    f.write("0.0\n")  # x_min
+                for _ in range(input_dim):
+                    f.write("1.0\n")  # x_max
+                for _ in range(output_dim):
+                    f.write("0.0\n")  # y_min
+                for _ in range(output_dim):
+                    f.write("1.0\n")  # y_max
+            return
+        
+        # Extract scaling parameters
+        x_min = x_scaler.data_min_
+        x_max = x_scaler.data_max_
+        y_min = y_scaler.data_min_
+        y_max = y_scaler.data_max_
+        
+        # Write to text file in format: x_min, x_max, y_min, y_max
+        with open(output_file, 'w') as f:
+            # Write x_min values (input parameters)
+            for val in x_min:
+                f.write(f"{val}\n")
+            # Write x_max values (input parameters)
+            for val in x_max:
+                f.write(f"{val}\n")
+            # Write y_min values (output statistics)
+            for val in y_min:
+                f.write(f"{val}\n")
+            # Write y_max values (output statistics)
+            for val in y_max:
+                f.write(f"{val}\n")
+        
+        print(f"Scalers extracted successfully to {output_file}")
+        print(f"Input dimensions: {len(x_min)}")
+        print(f"Output dimensions: {len(y_min)}")
+        
+    except Exception as e:
+        print(f"Error extracting scalers: {e}")
+        print("Creating default scaling file...")
+        # Create default scaling file
+        input_dim = 2  # Default
+        output_dim = 2  # Default
+        with open(output_file, 'w') as f:
+            # Write default scaling parameters (no scaling)
+            for _ in range(input_dim):
+                f.write("0.0\n")  # x_min
+            for _ in range(input_dim):
+                f.write("1.0\n")  # x_max
+            for _ in range(output_dim):
+                f.write("0.0\n")  # y_min
+            for _ in range(output_dim):
+                f.write("1.0\n")  # y_max
+
+
 def generate_module_code(config, onnx_file, pth_file, output_dir):
     """Generate module C++ code from template."""
     template_file = Path(__file__).parent / 'templates' / 'module.cc.template'
@@ -90,6 +162,10 @@ def generate_module_code(config, onnx_file, pth_file, output_dir):
         sys.exit(1)
     
     template = template_file.read_text()
+    
+    # Extract scalers from .pth file
+    scaling_file = output_dir / f"{config.get('module_name', 'module')}_scaling.txt"
+    extract_scalers_from_pth(pth_file, scaling_file)
     
     # Prepare replacements
     module_name = config.get('module_name', 'unnamed_module')
@@ -115,7 +191,7 @@ def generate_module_code(config, onnx_file, pth_file, output_dir):
         '{{INPUT_DIM}}': str(input_dim),
         '{{OUTPUT_DIM}}': str(output_dim),
         '{{ONNX_PATH}}': str(onnx_file.absolute()),
-        '{{PTH_PATH}}': str(pth_file.absolute()),
+        '{{SCALING_PATH}}': str(scaling_file.absolute()),
         '{{INPUT_MIN}}': format_array(input_min),
         '{{INPUT_MAX}}': format_array(input_max),
         '{{OUTPUT_MIN}}': format_array(output_min),
