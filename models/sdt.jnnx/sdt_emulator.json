@@ -1,0 +1,18 @@
+{
+  "input_dimensions": 2,
+  "output_dimensions": 2,
+  "module_name": "sdt_emulator",
+  "banner_string": "The SDT emulator module is (c)2025 Joachim Vandekerckhove.",
+  "installation_directory": "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/",
+  "input_limits_min": "[-Inf, -Inf]",
+  "input_limits_max": "[Inf, Inf]",
+  "output_limits_min": [
+    0,
+    0
+  ],
+  "output_limits_max": [
+    1,
+    1
+  ],
+  "jags_function_name": "sdt"
+}
