@@ -2,7 +2,7 @@
 // Auto-generated from jnnx template
 
 #include <module/Module.h>
-#include <function/ScalarFunction.h>
+#include <function/VectorFunction.h>
 #include <onnxruntime_cxx_api.h>
 #include <vector>
 #include <string>
@@ -14,7 +14,7 @@ namespace jags {
 namespace sdt_emulator {
 
 // Neural network function class
-class SDT_Function : public ScalarFunction
+class SDT_Function : public VectorFunction
 {
 private:
     Ort::Env env;
@@ -82,7 +82,7 @@ private:
     }
     
 public:
-    SDT_Function() : ScalarFunction("sdt", 2), scalers_loaded(false)
+    SDT_Function() : VectorFunction("sdt", 2), scalers_loaded(false)
     {
         // Initialize ONNX Runtime
         env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "sdt_emulator");
@@ -124,7 +124,9 @@ public:
         return true;
     }
     
-    double evaluate(std::vector<double const *> const &args) const
+    void evaluate(double *value, 
+                  std::vector<double const *> const &args,
+                  std::vector<unsigned int> const &lengths) const
     {
         try {
             // Prepare input data
@@ -164,16 +166,25 @@ public:
             // Get output data from neural network
             float* output_data = output_tensors[0].GetTensorMutableData<float>();
             
-            // Scale output back to real-world values (denormalize)
-            double scaled_output = output_data[0] * (y_max[0] - y_min[0]) + y_min[0];
-            
-            return scaled_output;
+            // Scale output back to real-world values (denormalize) and store in value array
+            for (unsigned int i = 0; i < 2; ++i) {
+                value[i] = static_cast<double>(output_data[i] * (y_max[i] - y_min[i]) + y_min[i]);
+            }
             
         } catch (const std::exception& e) {
             std::cerr << "Error in neural network evaluation: " << e.what() << std::endl;
-            // Return default value on error
-            return 0.5;
+            // Return default values on error
+            for (unsigned int i = 0; i < 2; ++i) {
+                value[i] = 0.5;
+            }
         }
+    }
+    
+    unsigned int length(std::vector<unsigned int> const &arglengths,
+                        std::vector<double const *> const &argvalues) const
+    {
+        // Return the number of output dimensions
+        return 2;
     }
 };
 

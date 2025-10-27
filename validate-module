@@ -294,7 +294,40 @@ def test_invalid_input_bounds(config):
         return False
 
 
-def test_numerical_consistency(config, onnx_file):
+def load_scaling_parameters(pth_file, input_dim, output_dim):
+    """Load scaling parameters from .pth file (same logic as C++ module)."""
+    try:
+        import torch
+        
+        # Load the .pth file
+        checkpoint = torch.load(pth_file, map_location='cpu')
+        
+        # Extract scalers from the checkpoint
+        x_scaler = checkpoint.get('x_scaler')
+        y_scaler = checkpoint.get('y_scaler')
+        
+        if x_scaler is None or y_scaler is None:
+            return None
+        
+        # Extract scaling parameters
+        x_min = x_scaler.data_min_.tolist()
+        x_max = x_scaler.data_max_.tolist()
+        y_min = y_scaler.data_min_.tolist()
+        y_max = y_scaler.data_max_.tolist()
+        
+        return {
+            'x_min': x_min,
+            'x_max': x_max,
+            'y_min': y_min,
+            'y_max': y_max
+        }
+        
+    except Exception as e:
+        print(f"Warning: Could not load scaling parameters from {pth_file}: {e}")
+        return None
+
+
+def test_numerical_consistency(config, onnx_file, pth_file):
     """Test 6: Output vector is numerically identical to direct Python evaluation."""
     print("Test 6: Numerical consistency with Python...")
     
@@ -307,6 +340,17 @@ def test_numerical_consistency(config, onnx_file):
         # Load ONNX model for direct evaluation
         session = ort.InferenceSession(str(onnx_file))
         
+        # Load scaling parameters from .pth file (same as C++ module)
+        scaling_params = load_scaling_parameters(pth_file, input_dim, output_dim)
+        if not scaling_params:
+            print("  ⚠ Could not load scaling parameters, using default (no scaling)")
+            scaling_params = {
+                'x_min': [0.0] * input_dim,
+                'x_max': [1.0] * input_dim, 
+                'y_min': [0.0] * output_dim,
+                'y_max': [1.0] * output_dim
+            }
+        
         # Generate test inputs
         test_inputs = [
             [1.0, 2.0],
@@ -315,22 +359,38 @@ def test_numerical_consistency(config, onnx_file):
             [0.5, -0.5]
         ]
         
-        max_diff = 0.0
+        max_diff1 = 0.0
+        max_diff2 = 0.0
         
         for i, test_input in enumerate(test_inputs):
             if len(test_input) != input_dim:
                 continue
             
-            # Direct Python evaluation
-            input_data = np.array(test_input, dtype=np.float32).reshape(1, -1)
-            python_output = session.run(None, {'input': input_data})[0][0]
+            # Apply same scaling as C++ module: scale input to [0,1]
+            scaled_input = []
+            for j in range(input_dim):
+                if scaling_params['x_max'][j] - scaling_params['x_min'][j] == 0.0:
+                    scaled_input.append(0.5)  # Default to middle of range
+                else:
+                    scaled_val = (test_input[j] - scaling_params['x_min'][j]) / (scaling_params['x_max'][j] - scaling_params['x_min'][j])
+                    scaled_input.append(scaled_val)
+            
+            # Direct Python evaluation with scaled input
+            input_data = np.array(scaled_input, dtype=np.float32).reshape(1, -1)
+            python_raw_output = session.run(None, {'input': input_data})[0][0]
+            
+            # Apply same output scaling as C++ module
+            python_output = []
+            for j in range(output_dim):
+                scaled_output = python_raw_output[j] * (scaling_params['y_max'][j] - scaling_params['y_min'][j]) + scaling_params['y_min'][j]
+                python_output.append(scaled_output)
             
             # JAGS evaluation
             args_str = ', '.join(str(x) for x in test_input)
             model_code = f'''
             model {{
                 result <- {function_name}({args_str})
-                dummy ~ dnorm(result, 1.0)
+                dummy ~ dnorm(0, 1)
             }}
             '''
             
@@ -347,26 +407,30 @@ def test_numerical_consistency(config, onnx_file):
                     monitorparams=['result']
                 )
                 
-                if 'result' in chains.parameter_names:
-                    jags_output = chains.get_samples('result')[0]
+                if 'result_1' in chains.parameter_names and 'result_2' in chains.parameter_names:
+                    jags_output1 = chains.get_samples('result_1')[0]
+                    jags_output2 = chains.get_samples('result_2')[0]
                     
-                    # Compare outputs (for scalar function, compare first element)
-                    diff = abs(python_output[0] - jags_output)
-                    max_diff = max(max_diff, diff)
+                    # Compare outputs
+                    diff1 = abs(python_output[0] - jags_output1)
+                    diff2 = abs(python_output[1] - jags_output2)
+                    max_diff1 = max(max_diff1, diff1)
+                    max_diff2 = max(max_diff2, diff2)
                     
-                    print(f"  Test {i+1}: Python={python_output[0]:.6f}, JAGS={jags_output:.6f}, Diff={diff:.2e}")
+                    print(f"  Test {i+1}: Python=({python_output[0]:.6f}, {python_output[1]:.6f}), JAGS=({jags_output1:.6f}, {jags_output2:.6f}), Diff=({diff1:.2e}, {diff2:.2e})")
                 else:
-                    print(f"  ✗ Test {i+1}: No result parameter found")
+                    print(f"  ✗ Test {i+1}: No result parameters found")
                     return False
                     
             except Exception as e:
                 print(f"  ✗ Test {i+1} failed: {e}")
                 return False
         
-        print(f"  ✓ Maximum numerical difference: {max_diff:.2e}")
-        if max_diff < 1e-6:
+        print(f"  ✓ Maximum numerical differences: {max_diff1:.2e} (output1), {max_diff2:.2e} (output2)")
+        overall_max_diff = max(max_diff1, max_diff2)
+        if overall_max_diff < 1e-6:
             print("  ✓ Excellent numerical consistency")
-        elif max_diff < 1e-3:
+        elif overall_max_diff < 1e-3:
             print("  ✓ Good numerical consistency")
         else:
             print("  ⚠ Moderate numerical differences detected")
@@ -426,7 +490,7 @@ def main():
     print()
     
     # Test 6: Numerical consistency
-    if test_numerical_consistency(config, onnx_file):
+    if test_numerical_consistency(config, onnx_file, pth_file):
         tests_passed += 1
     print()
     
