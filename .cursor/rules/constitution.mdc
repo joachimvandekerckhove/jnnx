@@ -5,6 +5,4 @@ alwaysApply: true
 ---
 
 # jnnx base context (keep terse)
-@file:.memory/constitution.md
-@file:.memory/project-description.md
-@file:.memory/jags-interface-memo.md
+@folder:docs/governance/

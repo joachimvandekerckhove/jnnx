@@ -1,0 +1,18 @@
+{
+    "model_name": "ddm_emulator",
+    "version": "1.0.0",
+    "input_parameters": [
+        {"name": "boundary", "min": 0.5, "max": 5.0},
+        {"name": "drift", "min": -5.0, "max": 5.0},
+        {"name": "ndt", "min": 0.0, "max": 1.0}
+    ],
+    "output_parameters": [
+        {"name": "accuracy", "min": 0.0, "max": 1.0},
+        {"name": "mean_rt", "min": 0.0, "max": 10.0},
+        {"name": "var_rt", "min": 0.0, "max": 100.0}
+    ],
+    "transformations": {
+        "input_transform": "minmax",
+        "output_transforms": ["probit", "log", "log"]
+    }
+}

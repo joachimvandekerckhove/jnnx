@@ -1,1 +1,31 @@
+# Temporary files and generated artifacts
+tmp/
+build/
+*.o
+*.so
+*.la
+*.tgz
 
+# ONNX Runtime extraction
+onnxruntime-linux-x64-*/
+
+# Test files
+test_*.jags
+test_simple.*
+
+# Generated scaling files
+*_scaling.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,3 +1,0 @@
-model {
-    result <- sdt(1.0, 2.0)
-}
