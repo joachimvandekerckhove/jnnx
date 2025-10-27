@@ -163,6 +163,12 @@ def generate_module_code(metadata, scalers, onnx_file, output_dir):
     # Create banner string
     banner = f"The {model_name} is being loaded. (c) 2025 Joachim Vandekerckhove"
     
+    # Copy ONNX file to build directory for easier access
+    onnx_copy = output_dir / "model.onnx"
+    import shutil
+    shutil.copy2(onnx_file, onnx_copy)
+    print(f"Copied ONNX model to: {onnx_copy}")
+    
     # Replace placeholders
     replacements = {
         '{{MODULE_NAME}}': module_name,
@@ -171,7 +177,7 @@ def generate_module_code(metadata, scalers, onnx_file, output_dir):
         '{{MODULE_CLASS}}': module_class,
         '{{INPUT_DIM}}': str(input_dim),
         '{{OUTPUT_DIM}}': str(output_dim),
-        '{{ONNX_PATH}}': str(onnx_file.absolute()),
+        '{{ONNX_PATH}}': str(onnx_copy.absolute()),
         '{{INPUT_MIN}}': format_array(input_min),
         '{{INPUT_MAX}}': format_array(input_max),
         '{{OUTPUT_MIN}}': format_array(output_min),

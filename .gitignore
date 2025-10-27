@@ -13,9 +13,6 @@ onnxruntime-linux-x64-*/
 test_*.jags
 test_simple.*
 
-# Generated scaling files
-*_scaling.txt
-
 # Python cache
 __pycache__/
 *.pyc

@@ -127,7 +127,8 @@ def test_module_loading(jnnx_dir):
             nchains=1,
             nsamples=1,
             nadapt=0,
-            nburnin=0
+            nburnin=0,
+            modules=[model_name]  # Load the custom module
         )
         
         print(f"  ✓ Module loaded successfully in JAGS")
@@ -177,7 +178,8 @@ def test_valid_input_range(jnnx_dir):
             nchains=1,
             nsamples=1,
             nadapt=0,
-            nburnin=0
+            nburnin=0,
+            modules=[model_name]  # Load the custom module
         )
         
         print(f"  ✓ Valid input range works: {test_inputs}")
@@ -229,7 +231,8 @@ def test_valid_output(jnnx_dir):
             nchains=1,
             nsamples=1,
             nadapt=0,
-            nburnin=0
+            nburnin=0,
+            modules=[model_name]  # Load the custom module
         )
         
         # Extract results
@@ -283,7 +286,8 @@ def test_invalid_input_size(jnnx_dir):
             nchains=1,
             nsamples=1,
             nadapt=0,
-            nburnin=0
+            nburnin=0,
+            modules=[model_name]  # Load the custom module
         )
         
         print(f"  ✗ Invalid input size did not trigger error (unexpected)")
@@ -333,7 +337,8 @@ def test_invalid_input_bounds(jnnx_dir):
             nchains=1,
             nsamples=1,
             nadapt=0,
-            nburnin=0
+            nburnin=0,
+            modules=[model_name]  # Load the custom module
         )
         
         print(f"  ✗ Invalid input bounds did not trigger error (unexpected)")
@@ -404,7 +409,8 @@ def test_numerical_consistency(jnnx_dir):
             nchains=1,
             nsamples=1,
             nadapt=0,
-            nburnin=0
+            nburnin=0,
+            modules=[model_name]  # Load the custom module
         )
         
         # Extract JAGS results

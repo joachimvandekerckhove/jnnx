@@ -18,6 +18,10 @@ within this project.  They are not project specifications; those live in
 5. Use plain Markdown for structure, no decorative elements.
 6. Assume an expert technical audience.
 7. Always address the user as "boss".
+8. Be self-critical in your assertions. Do not describe a project as complete
+   or successful unless 100% of the specifications are exactly met. A project
+   is not complete if there are remaining TODO items, if there are test
+   failures, or if there are shortcuts that subvert the spirit of the project.
 
 ---
 
@@ -45,6 +49,7 @@ within this project.  They are not project specifications; those live in
    in dedicated folders, tests in their own folders, scripts and demos each in
    their own folders, documentation in a specific folder, and other 
    professional habits.
+7. If you encounter a JAGS syntax issue, consult the jags-interface-memo.
 
 ---
 

@@ -5,4 +5,4 @@ alwaysApply: true
 ---
 
 # jnnx base context (keep terse)
-@folder:docs/governance/
+@folder:.cursor/rules/governance/
