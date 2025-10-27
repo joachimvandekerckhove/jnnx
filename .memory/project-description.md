@@ -49,9 +49,7 @@ Here are some conditions that should be met:
     bounds) should return a valid output vector (right size, within bounds).
  4) Calling the neural network with an invalid input vector (wrong size) should
     trigger an error.
- 5) Calling the neural network with an invalid input vector (out of bounds)
-    should trigger an error.
- 6) The installation directory should exist.
+ 5) The installation directory should exist.
  
  The validation script should test all of these things and give concise but
  informative output to the console.

@@ -1,0 +1,12 @@
+{
+  "input_dimensions": 4,
+  "output_dimensions": 5,
+  "module_name": "ddm4_emulator",
+  "banner_string": "The DDM4 emulator is being loaded. (c) 2025 Joachim Vandekerckhove",
+  "installation_directory": "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/",
+  "input_limits_min": [0.5, -5.0, 0.0, 0.0],
+  "input_limits_max": [5.0, 5.0, 1.0, 1.0],
+  "output_limits_min": [0.0, 0.0, 0.0, 0.0, 0.0],
+  "output_limits_max": [1.0, 1.0, 1.0, 1.0, 1.0],
+  "jags_function_name": "ddm4"
+}

@@ -111,16 +111,31 @@ public:
         delete session;
     }
     
-    bool checkParameterValue(std::vector<double const *> const &args) const
+    bool checkParameterValue(std::vector<double const *> const &args,
+                             std::vector<unsigned int> const &lengths) const
     {
-        // Check input bounds (optional - neural networks can handle out-of-bounds inputs)
-        // This is mainly for user feedback
+        // Check for NaN or Inf values
         for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
-            double val = *args[i];
-            if (std::isnan(val) || std::isinf(val)) {
+            if (!std::isfinite(*args[i])) {
                 return false;
             }
         }
+        
+        // Check input bounds
+        std::vector<double> input_min = {{INPUT_MIN}};
+        std::vector<double> input_max = {{INPUT_MAX}};
+        
+        for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
+            double value = *args[i];
+            // Skip bounds check for infinite limits
+            if (std::isfinite(input_min[i]) && value < input_min[i]) {
+                return false;
+            }
+            if (std::isfinite(input_max[i]) && value > input_max[i]) {
+                return false;
+            }
+        }
+        
         return true;
     }
     
