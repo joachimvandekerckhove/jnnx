@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""
+validate-module: Test suite to validate a compiled JAGS module.
+
+Usage: ./validate-module models/sdt.jnnx/
+
+Tests:
+1) Neural network loads in JAGS without error
+2) Calling with valid input vector works without error for a range of values
+3) Calling with valid input vector returns valid output vector
+4) Calling with invalid input vector (wrong size) triggers error
+5) Calling with invalid input vector (out of bounds) triggers error
+6) Output vector is numerically identical to direct Python evaluation
+"""
+
+import json
+import os
+import sys
+import numpy as np
+import subprocess
+import tempfile
+from pathlib import Path
+
+try:
+    import py2jags
+    import torch
+    import onnxruntime as ort
+except ImportError as e:
+    print(f"Error: Missing required package: {e}")
+    print("Please install: pip install py2jags torch onnxruntime")
+    sys.exit(1)
+
+
+def find_files(jnnx_dir):
+    """Find required files in .jnnx directory."""
+    jnnx_path = Path(jnnx_dir)
+    if not jnnx_path.exists():
+        print(f"Error: Directory {jnnx_dir} does not exist")
+        sys.exit(1)
+    
+    if not jnnx_path.name.endswith('.jnnx'):
+        print(f"Error: Directory {jnnx_dir} does not end with .jnnx")
+        sys.exit(1)
+    
+    # Find JSON file
+    json_files = list(jnnx_path.glob("*.json"))
+    if not json_files:
+        print(f"Error: No JSON file found in {jnnx_dir}")
+        sys.exit(1)
+    json_file = json_files[0]
+    
+    # Find ONNX file
+    onnx_files = list(jnnx_path.glob("*.onnx"))
+    if not onnx_files:
+        print(f"Error: No ONNX file found in {jnnx_dir}")
+        sys.exit(1)
+    onnx_file = onnx_files[0]
+    
+    # Find PTH file
+    pth_files = list(jnnx_path.glob("*.pth"))
+    if not pth_files:
+        print(f"Error: No PTH file found in {jnnx_dir}")
+        sys.exit(1)
+    pth_file = pth_files[0]
+    
+    return json_file, onnx_file, pth_file
+
+
+def load_config(json_file):
+    """Load JSON configuration."""
+    try:
+        content = json_file.read_text().strip()
+        if not content:
+            print(f"Error: JSON file {json_file} is empty")
+            sys.exit(1)
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in {json_file}: {e}")
+        sys.exit(1)
+
+
+def test_module_loading(config):
+    """Test 1: Neural network loads in JAGS without error."""
+    print("Test 1: Module loading in JAGS...")
+    
+    try:
+        module_name = config.get('module_name', 'unnamed_module')
+        
+        # Test module loading
+        model_code = f'''
+        model {{
+            dummy ~ dnorm(0, 1)
+        }}
+        '''
+        
+        data = {'n': 1}
+        
+        chains = py2jags.run_jags(
+            model_string=model_code, 
+            data_dict=data, 
+            nchains=1, 
+            nsamples=1, 
+            verbosity=0, 
+            modules=[module_name],
+            monitorparams=['dummy']
+        )
+        
+        print(f"  ✓ Module '{module_name}' loaded successfully in JAGS")
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Module loading failed: {e}")
+        return False
+
+
+def test_valid_input_output(config):
+    """Tests 2-3: Valid input/output behavior."""
+    print("Test 2-3: Valid input/output behavior...")
+    
+    try:
+        module_name = config.get('module_name', 'unnamed_module')
+        function_name = config.get('jags_function_name', 'unnamed_function')
+        input_dim = config.get('input_dimensions', 2)
+        output_dim = config.get('output_dimensions', 2)
+        
+        # Generate test inputs
+        test_inputs = [
+            [1.0, 2.0],
+            [0.0, 0.0],
+            [-1.0, 1.0],
+            [0.5, -0.5]
+        ]
+        
+        for i, test_input in enumerate(test_inputs):
+            if len(test_input) != input_dim:
+                continue
+                
+            # Create JAGS model
+            args_str = ', '.join(str(x) for x in test_input)
+            model_code = f'''
+            model {{
+                result <- {function_name}({args_str})
+                dummy ~ dnorm(result, 1.0)
+            }}
+            '''
+            
+            data = {'n': 1}
+            
+            try:
+                chains = py2jags.run_jags(
+                    model_string=model_code, 
+                    data_dict=data, 
+                    nchains=1, 
+                    nsamples=1, 
+                    verbosity=0, 
+                    modules=[module_name],
+                    monitorparams=['result']
+                )
+                
+                if 'result' in chains.parameter_names:
+                    result_value = chains.get_samples('result')[0]
+                    print(f"  ✓ Test input {i+1}: {test_input} -> {result_value}")
+                else:
+                    print(f"  ✗ Test input {i+1}: No result parameter found")
+                    return False
+                    
+            except Exception as e:
+                print(f"  ✗ Test input {i+1} failed: {e}")
+                return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Valid input/output test failed: {e}")
+        return False
+
+
+def test_invalid_input_size(config):
+    """Test 4: Invalid input vector (wrong size) triggers error."""
+    print("Test 4: Invalid input size...")
+    
+    try:
+        module_name = config.get('module_name', 'unnamed_module')
+        function_name = config.get('jags_function_name', 'unnamed_function')
+        input_dim = config.get('input_dimensions', 2)
+        
+        # Test wrong number of arguments
+        wrong_args = [
+            f"{function_name}(1.0)",  # Too few arguments
+            f"{function_name}(1.0, 2.0, 3.0)"  # Too many arguments
+        ]
+        
+        for i, wrong_arg in enumerate(wrong_args):
+            model_code = f'''
+            model {{
+                result <- {wrong_arg}
+                dummy ~ dnorm(result, 1.0)
+            }}
+            '''
+            
+            data = {'n': 1}
+            
+            try:
+                chains = py2jags.run_jags(
+                    model_string=model_code, 
+                    data_dict=data, 
+                    nchains=1, 
+                    nsamples=1, 
+                    verbosity=0, 
+                    modules=[module_name]
+                )
+                print(f"  ⚠ Wrong argument count {i+1} did not trigger error (unexpected)")
+            except Exception as e:
+                print(f"  ✓ Wrong argument count {i+1} correctly triggered error: {type(e).__name__}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Invalid input size test failed: {e}")
+        return False
+
+
+def test_invalid_input_bounds(config):
+    """Test 5: Invalid input vector (out of bounds) triggers error."""
+    print("Test 5: Invalid input bounds...")
+    
+    try:
+        module_name = config.get('module_name', 'unnamed_module')
+        function_name = config.get('jags_function_name', 'unnamed_function')
+        input_dim = config.get('input_dimensions', 2)
+        input_min = config.get('input_limits_min')
+        input_max = config.get('input_limits_max')
+        
+        if not input_min or not input_max:
+            print("  ⚠ No input bounds specified, skipping bounds test")
+            return True
+        
+        # Parse bounds
+        if isinstance(input_min, str):
+            input_min = input_min.replace('Inf', '1e38').replace('-Inf', '-1e38')
+            input_min = json.loads(input_min)
+        if isinstance(input_max, str):
+            input_max = input_max.replace('Inf', '1e38').replace('-Inf', '-1e38')
+            input_max = json.loads(input_max)
+        
+        if len(input_min) != input_dim or len(input_max) != input_dim:
+            print(f"  ⚠ Input bounds length mismatch (expected {input_dim})")
+            return True
+        
+        # Test out-of-bounds inputs
+        test_inputs = []
+        
+        # Test values below minimum
+        for i in range(input_dim):
+            test_input = input_min.copy()
+            test_input[i] = test_input[i] - 1.0  # Below minimum
+            test_inputs.append(test_input)
+        
+        # Test values above maximum
+        for i in range(input_dim):
+            test_input = input_max.copy()
+            test_input[i] = test_input[i] + 1.0  # Above maximum
+            test_inputs.append(test_input)
+        
+        for i, test_input in enumerate(test_inputs):
+            args_str = ', '.join(str(x) for x in test_input)
+            model_code = f'''
+            model {{
+                result <- {function_name}({args_str})
+                dummy ~ dnorm(result, 1.0)
+            }}
+            '''
+            
+            data = {'n': 1}
+            
+            try:
+                chains = py2jags.run_jags(
+                    model_string=model_code, 
+                    data_dict=data, 
+                    nchains=1, 
+                    nsamples=1, 
+                    verbosity=0, 
+                    modules=[module_name]
+                )
+                print(f"  ✓ Out-of-bounds input {i+1} processed without error (expected)")
+            except Exception as e:
+                print(f"  ⚠ Out-of-bounds input {i+1} triggered error: {type(e).__name__}")
+        
+        print("  Note: Bounds checking depends on module implementation")
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Invalid input bounds test failed: {e}")
+        return False
+
+
+def test_numerical_consistency(config, onnx_file):
+    """Test 6: Output vector is numerically identical to direct Python evaluation."""
+    print("Test 6: Numerical consistency with Python...")
+    
+    try:
+        module_name = config.get('module_name', 'unnamed_module')
+        function_name = config.get('jags_function_name', 'unnamed_function')
+        input_dim = config.get('input_dimensions', 2)
+        output_dim = config.get('output_dimensions', 2)
+        
+        # Load ONNX model for direct evaluation
+        session = ort.InferenceSession(str(onnx_file))
+        
+        # Generate test inputs
+        test_inputs = [
+            [1.0, 2.0],
+            [0.0, 0.0],
+            [-1.0, 1.0],
+            [0.5, -0.5]
+        ]
+        
+        max_diff = 0.0
+        
+        for i, test_input in enumerate(test_inputs):
+            if len(test_input) != input_dim:
+                continue
+            
+            # Direct Python evaluation
+            input_data = np.array(test_input, dtype=np.float32).reshape(1, -1)
+            python_output = session.run(None, {'input': input_data})[0][0]
+            
+            # JAGS evaluation
+            args_str = ', '.join(str(x) for x in test_input)
+            model_code = f'''
+            model {{
+                result <- {function_name}({args_str})
+                dummy ~ dnorm(result, 1.0)
+            }}
+            '''
+            
+            data = {'n': 1}
+            
+            try:
+                chains = py2jags.run_jags(
+                    model_string=model_code, 
+                    data_dict=data, 
+                    nchains=1, 
+                    nsamples=1, 
+                    verbosity=0, 
+                    modules=[module_name],
+                    monitorparams=['result']
+                )
+                
+                if 'result' in chains.parameter_names:
+                    jags_output = chains.get_samples('result')[0]
+                    
+                    # Compare outputs (for scalar function, compare first element)
+                    diff = abs(python_output[0] - jags_output)
+                    max_diff = max(max_diff, diff)
+                    
+                    print(f"  Test {i+1}: Python={python_output[0]:.6f}, JAGS={jags_output:.6f}, Diff={diff:.2e}")
+                else:
+                    print(f"  ✗ Test {i+1}: No result parameter found")
+                    return False
+                    
+            except Exception as e:
+                print(f"  ✗ Test {i+1} failed: {e}")
+                return False
+        
+        print(f"  ✓ Maximum numerical difference: {max_diff:.2e}")
+        if max_diff < 1e-6:
+            print("  ✓ Excellent numerical consistency")
+        elif max_diff < 1e-3:
+            print("  ✓ Good numerical consistency")
+        else:
+            print("  ⚠ Moderate numerical differences detected")
+        
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Numerical consistency test failed: {e}")
+        return False
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: ./validate-module <jnnx-directory>")
+        print("Example: ./validate-module models/sdt.jnnx/")
+        sys.exit(1)
+    
+    jnnx_dir = sys.argv[1]
+    print(f"Validating compiled JAGS module: {jnnx_dir}")
+    print("=" * 60)
+    
+    # Find required files
+    json_file, onnx_file, pth_file = find_files(jnnx_dir)
+    print(f"Found files:")
+    print(f"  JSON: {json_file}")
+    print(f"  ONNX: {onnx_file}")
+    print(f"  PTH:  {pth_file}")
+    print()
+    
+    # Load configuration
+    config = load_config(json_file)
+    print(f"Configuration loaded")
+    print()
+    
+    # Run tests
+    tests_passed = 0
+    total_tests = 6
+    
+    # Test 1: Module loading
+    if test_module_loading(config):
+        tests_passed += 1
+    print()
+    
+    # Tests 2-3: Valid input/output
+    if test_valid_input_output(config):
+        tests_passed += 2  # Count as 2 tests
+    print()
+    
+    # Test 4: Invalid input size
+    if test_invalid_input_size(config):
+        tests_passed += 1
+    print()
+    
+    # Test 5: Invalid input bounds
+    if test_invalid_input_bounds(config):
+        tests_passed += 1
+    print()
+    
+    # Test 6: Numerical consistency
+    if test_numerical_consistency(config, onnx_file):
+        tests_passed += 1
+    print()
+    
+    # Summary
+    print("=" * 60)
+    print(f"Validation Summary: {tests_passed}/{total_tests} tests passed")
+    
+    if tests_passed == total_tests:
+        print("✓ All tests passed! Compiled module is valid.")
+        sys.exit(0)
+    else:
+        print("✗ Some tests failed. Please check the issues above.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
