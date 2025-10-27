@@ -258,8 +258,9 @@ class TestPhase3(unittest.TestCase):
         with open(self.jnnx_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=4)
         
-        # Create dummy model.onnx
-        (self.jnnx_dir / "model.onnx").write_bytes(b"dummy onnx content")
+        # Copy real ONNX model for testing (dummy files cause ONNX Runtime errors)
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", self.jnnx_dir / "model.onnx")
         
         # Create scalers.pkl
         scalers = {
@@ -391,8 +392,9 @@ class TestPhase4(unittest.TestCase):
         with open(self.jnnx_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=4)
         
-        # Create dummy model.onnx
-        (self.jnnx_dir / "model.onnx").write_bytes(b"dummy onnx content")
+        # Copy real ONNX model for testing (dummy files cause ONNX Runtime errors)
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", self.jnnx_dir / "model.onnx")
         
         # Create scalers.pkl
         scalers = {
@@ -491,8 +493,9 @@ class TestPhase5(unittest.TestCase):
         with open(self.jnnx_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=4)
         
-        # Create dummy model.onnx
-        (self.jnnx_dir / "model.onnx").write_bytes(b"dummy onnx content")
+        # Copy real ONNX model for testing (dummy files cause ONNX Runtime errors)
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", self.jnnx_dir / "model.onnx")
         
         # Create scalers.pkl
         scalers = {
@@ -579,7 +582,8 @@ class TestEdgeCases(unittest.TestCase):
         (jnnx_dir / "metadata.json").write_text("{ invalid json")
         
         # Add required files to avoid "missing files" error
-        (jnnx_dir / "model.onnx").write_bytes(b"dummy onnx content")
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", jnnx_dir / "model.onnx")
         scalers = {'x_min': [0.0], 'x_max': [1.0], 'y_min': [0.0], 'y_max': [1.0]}
         with open(jnnx_dir / "scalers.pkl", 'wb') as f:
             pickle.dump(scalers, f)
@@ -606,7 +610,8 @@ class TestEdgeCases(unittest.TestCase):
             json.dump(incomplete_metadata, f, indent=4)
         
         # Add required files to avoid "missing files" error
-        (jnnx_dir / "model.onnx").write_bytes(b"dummy onnx content")
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", jnnx_dir / "model.onnx")
         scalers = {'x_min': [0.0], 'x_max': [1.0], 'y_min': [0.0], 'y_max': [1.0]}
         with open(jnnx_dir / "scalers.pkl", 'wb') as f:
             pickle.dump(scalers, f)
@@ -638,6 +643,13 @@ class TestEdgeCases(unittest.TestCase):
         
         with open(jnnx_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=4)
+        
+        # Add required files to avoid "missing files" error
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", jnnx_dir / "model.onnx")
+        scalers = {'x_min': [0.0], 'x_max': [1.0], 'y_min': [0.0], 'y_max': [1.0]}
+        with open(jnnx_dir / "scalers.pkl", 'wb') as f:
+            pickle.dump(scalers, f)
         
         # Test that scripts handle file operations
         result = subprocess.run([
@@ -687,8 +699,9 @@ class TestIntegration(unittest.TestCase):
         with open(self.jnnx_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=4)
         
-        # Create dummy model.onnx
-        (self.jnnx_dir / "model.onnx").write_bytes(b"dummy onnx content")
+        # Copy real ONNX model for testing (dummy files cause ONNX Runtime errors)
+        import shutil
+        shutil.copy("models/sdt.jnnx/model.onnx", self.jnnx_dir / "model.onnx")
         
         # Create scalers.pkl
         scalers = {
