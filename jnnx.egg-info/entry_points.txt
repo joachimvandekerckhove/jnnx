@@ -1,0 +1,5 @@
+[console_scripts]
+generate-module = jnnx.scripts.generate_module:main
+jnnx-setup = jnnx.scripts.jnnx_setup:main
+validate-jnnx = jnnx.scripts.validate_jnnx:main
+validate-module = jnnx.scripts.validate_module:main
