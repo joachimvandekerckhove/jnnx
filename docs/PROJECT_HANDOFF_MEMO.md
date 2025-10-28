@@ -3,16 +3,16 @@
 ## Project Overview
 **Goal**: Create a system to evaluate trained neural networks (ONNX/PTH files) as deterministic nodes within JAGS Bayesian models.
 
-**Status**: ✅ **COMPLETE** - All phases implemented and tested successfully.
+**Status**: All phases implemented and tested successfully.
 
 ## Critical Technical Insights
 
-### 1. ONNX Model Scaling Architecture ⚠️ **CRITICAL**
-**MOST IMPORTANT DISCOVERY**: ONNX models trained with scaling have scaling **built into the model itself**.
+### 1. ONNX Model Scaling Architecture
+**MOST IMPORTANT DISCOVERY**: ONNX models trained with scaling have scaling built into the model itself.
 
-- ✅ **CORRECT**: Pass inputs directly to ONNX, use outputs directly
-- ❌ **WRONG**: Apply additional input scaling or output denormalization
-- **Impact**: This insight alone saves weeks of debugging
+- CORRECT: Pass inputs directly to ONNX, use outputs directly
+- WRONG: Apply additional input scaling or output denormalization
+- Impact: This insight alone saves weeks of debugging
 
 **Verification Pattern**:
 ```python
@@ -67,28 +67,28 @@ ModelName_Module _modelname_module;
 ## Implementation Strategy
 
 ### Phase 0: Foundation (1-2 days)
-1. **Test ONNX model behavior** with raw inputs/outputs
-2. **Master py2jags API** - run examples, understand CODA requirements
-3. **Study existing JAGS modules** for patterns
-4. **Analyze target models** - dimensions, scaling, bounds
+1. Test ONNX model behavior with raw inputs/outputs
+2. Master py2jags API - run examples, understand CODA requirements
+3. Study existing JAGS modules for patterns
+4. Analyze target models - dimensions, scaling, bounds
 
 ### Phase 1: Core Implementation (2-3 days)
-1. **Start with VectorFunction** - skip ScalarFunction entirely
-2. **No scaling in JAGS module** - pass inputs directly to ONNX
-3. **Use real ONNX files** in tests - no dummy content
-4. **Simple validation** - one model, basic functionality
+1. Start with VectorFunction - skip ScalarFunction entirely
+2. No scaling in JAGS module - pass inputs directly to ONNX
+3. Use real ONNX files in tests - no dummy content
+4. Simple validation - one model, basic functionality
 
 ### Phase 2: Robust System (3-4 days)
-1. **Template system** - flexible, versioned templates
-2. **Complete test suite** - real models, edge cases
-3. **Error handling** - JAGS-style bounds checking
-4. **Documentation** - examples, troubleshooting
+1. Template system - flexible, versioned templates
+2. Complete test suite - real models, edge cases
+3. Error handling - JAGS-style bounds checking
+4. Documentation - examples, troubleshooting
 
 ### Phase 3: Production (2-3 days)
-1. **Multiple model support** - different dimensions
-2. **Installation automation** - scripts, dependencies
-3. **Performance optimization** - memory, error handling
-4. **Comprehensive validation** - integration tests
+1. Multiple model support - different dimensions
+2. Installation automation - scripts, dependencies
+3. Performance optimization - memory, error handling
+4. Comprehensive validation - integration tests
 
 ## Key Files and Structure
 
@@ -109,24 +109,24 @@ ModelName_Module _modelname_module;
 ## Common Pitfalls to Avoid
 
 ### 1. Double-Scaling Trap
-- ❌ Don't apply scaling in JAGS module if ONNX model already handles it
-- ✅ Test raw ONNX behavior first, use as ground truth
+- Don't apply scaling in JAGS module if ONNX model already handles it
+- Test raw ONNX behavior first, use as ground truth
 
 ### 2. py2jags Parameter Confusion
-- ❌ `monitor=['result']` - causes "no monitors" error
-- ✅ `monitorparams=['result']` - correct parameter
+- `monitor=['result']` - causes "no monitors" error
+- `monitorparams=['result']` - correct parameter
 
 ### 3. Missing Stochastic Nodes
-- ❌ Models without stochastic nodes fail CODA generation
-- ✅ Always include `dummy ~ dnorm(0, 1)`
+- Models without stochastic nodes fail CODA generation
+- Always include `dummy ~ dnorm(0, 1)`
 
 ### 4. Test Implementation Details
-- ❌ Testing for `extern "C"` or `load_module()`
-- ✅ Testing for actual functionality and behavior
+- Testing for `extern "C"` or `load_module()`
+- Testing for actual functionality and behavior
 
 ### 5. Dummy Test Data
-- ❌ Using dummy ONNX files in tests
-- ✅ Using real ONNX models for validation
+- Using dummy ONNX files in tests
+- Using real ONNX models for validation
 
 ## Validation Success Criteria
 
@@ -140,11 +140,11 @@ onnx_result = ort.InferenceSession('model.onnx').run(['output'], {'input': input
 ```
 
 ### Functional Requirements
-- ✅ Module loads: "Loading module: [name]: ok"
-- ✅ Function recognized: `function_name()` accessible in JAGS
-- ✅ Model compiles and executes
-- ✅ Error handling for invalid inputs
-- ✅ Bounds checking works correctly
+- Module loads: "Loading module: [name]: ok"
+- Function recognized: `function_name()` accessible in JAGS
+- Model compiles and executes
+- Error handling for invalid inputs
+- Bounds checking works correctly
 
 ## Dependencies and Setup
 
@@ -161,10 +161,10 @@ onnx_result = ort.InferenceSession('model.onnx').run(['output'], {'input': input
 ## Success Metrics
 
 The project is complete when:
-1. **All 28 tests pass** in `tests/test-suite.py`
-2. **Perfect numerical consistency** between JAGS and Python ONNX
-3. **All 5 phases implemented** and validated
-4. **Real-world models work** (SDT, DDM4 examples)
+1. All 28 tests pass in `tests/test-suite.py`
+2. Perfect numerical consistency between JAGS and Python ONNX
+3. All 5 phases implemented and validated
+4. Real-world models work (SDT, DDM4 examples)
 
 ## Final Notes
 
