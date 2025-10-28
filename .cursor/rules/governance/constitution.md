@@ -49,7 +49,8 @@ within this project.  They are not project specifications; those live in
    in dedicated folders, tests in their own folders, scripts and demos each in
    their own folders, documentation in a specific folder, and other 
    professional habits.
-7. If you encounter a JAGS syntax issue, consult the jags-interface-memo.
+7. If you encounter a JAGS syntax issue, consult the jags-interface-memo. Do not
+   try to call JAGS from the command line, only through py2jags.
 
 ---
 

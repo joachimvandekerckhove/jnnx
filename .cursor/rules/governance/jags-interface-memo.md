@@ -72,6 +72,7 @@ chains = py2jags.run_jags(
     nsamples=1, 
     nadapt=0, 
     nburnin=0,
+    monitorparams=['result'],
     modules=['{module_name}']  # Load custom module
 )
 
@@ -183,7 +184,33 @@ for i in range(5):  # For 5D output
 12. ✅ Are you using the `modules` parameter to load custom modules?
 13. ✅ Does JAGS output show "Loading module: [module_name]: ok"?
 
-### 11. **Remember**
+### 11. **Critical Discovery: ONNX Model Scaling**
+
+**IMPORTANT**: ONNX models that were trained with scaling have the scaling **built into the model itself**. The JAGS module should **NOT** apply additional scaling.
+
+#### Correct Approach:
+- Pass inputs directly to ONNX (no scaling)
+- Use ONNX outputs directly (no denormalization)
+- The scaling parameters in `.jnnx` packages are for training, not inference
+
+#### Wrong Approach (causes double-scaling):
+- Apply input scaling before ONNX
+- Apply output denormalization after ONNX
+- This results in incorrect values
+
+#### Verification:
+```python
+# Test that JAGS and Python ONNX give identical results
+import py2jags
+import onnxruntime as ort
+import numpy as np
+
+# Both should give identical results
+jags_result = py2jags.run_jags(..., monitorparams=['result'])
+onnx_result = ort.InferenceSession('model.onnx').run(['output'], {'input': input_data})
+```
+
+### 12. **Remember**
 
 - JAGS is picky about syntax and data types
 - `py2jags` handles file management - don't interfere
@@ -197,3 +224,4 @@ for i in range(5):  # For 5D output
 - **Check `chains.parameter_names` to verify available parameters**
 - **Use the `modules` parameter to load custom JAGS modules**
 - **Module names in `modules` parameter should match the module name, not function name**
+- **ONNX models handle scaling internally - don't apply additional scaling in JAGS modules**

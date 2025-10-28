@@ -28,12 +28,8 @@ private:
     
     bool load_scaling_parameters() {
         try {
-            // Initialize scalers from template values
-            x_min = {{X_MIN}};
-            x_max = {{X_MAX}};
-            y_min = {{Y_MIN}};
-            y_max = {{Y_MAX}};
-            
+            // Note: ONNX model already handles scaling internally
+            // We don't need to apply scaling in the JAGS module
             scalers_loaded = true;
             return true;
             
@@ -108,15 +104,10 @@ public:
                 throw std::runtime_error("Scaling parameters not loaded");
             }
             
-            // Prepare input data
+            // Prepare input data (no scaling needed - ONNX model handles it internally)
             std::vector<float> input_data({{INPUT_DIM}});
             for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
                 input_data[i] = static_cast<float>(*args[i]);
-            }
-            
-            // Apply input scaling (MinMax scaling)
-            for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
-                input_data[i] = (input_data[i] - x_min[i]) / (x_max[i] - x_min[i]);
             }
             
             // Create ONNX Runtime input tensor
@@ -132,13 +123,13 @@ public:
                                              input_names, &input_tensor, 1, 
                                              output_names, 1);
             
-            // Extract output data
+            // Extract output data (no scaling needed - ONNX model outputs raw values)
             float* output_data = output_tensors[0].GetTensorMutableData<float>();
             std::vector<float> output_vector(output_data, output_data + {{OUTPUT_DIM}});
             
-            // Scale output back to real-world values (denormalize) and store in value array
+            // Store output values directly (no denormalization needed)
             for (unsigned int i = 0; i < {{OUTPUT_DIM}}; ++i) {
-                value[i] = static_cast<double>(output_vector[i] * (y_max[i] - y_min[i]) + y_min[i]);
+                value[i] = static_cast<double>(output_vector[i]);
             }
             
         } catch (const std::exception& e) {
