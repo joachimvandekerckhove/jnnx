@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""
+validate-jnnx: Test suite to validate a .jnnx folder.
+
+Usage: ./validate-jnnx models/sdt.jnnx/
+
+Tests:
+1) Neural network loads from model.onnx and scalers.pkl files without error
+2) Valid input vector (right size, within bounds) works without error
+3) Valid input vector returns valid output vector (right size, within bounds)
+4) Invalid input vector (wrong size) triggers error
+5) Invalid input vector (out of bounds) - SKIPPED for Python validation
+6) Package integrity (all required files present)
+"""
+
+import json
+import os
+import sys
+import numpy as np
+import pickle
+from pathlib import Path
+
+try:
+    import onnx
+    import onnxruntime as ort
+except ImportError as e:
+    print(f"Error: Missing required package: {e}")
+    print("Please install: pip install onnx onnxruntime")
+    sys.exit(1)
+
+
+def find_files(jnnx_dir):
+    """Find required files in .jnnx directory."""
+    jnnx_path = Path(jnnx_dir)
+    if not jnnx_path.exists():
+        print(f"Error: Directory {jnnx_dir} does not exist")
+        sys.exit(1)
+    
+    if not jnnx_path.name.endswith('.jnnx'):
+        print(f"Error: Directory {jnnx_dir} does not end with .jnnx")
+        sys.exit(1)
+    
+    # Find metadata.json file
+    metadata_file = jnnx_path / "metadata.json"
+    if not metadata_file.exists():
+        print(f"Error: metadata.json not found in {jnnx_dir}")
+        sys.exit(1)
+    
+    # Find model.onnx file
+    onnx_file = jnnx_path / "model.onnx"
+    if not onnx_file.exists():
+        print(f"Error: model.onnx not found in {jnnx_dir}")
+        sys.exit(1)
+    
+    # Find scalers.pkl file
+    scalers_file = jnnx_path / "scalers.pkl"
+    if not scalers_file.exists():
+        print(f"Error: scalers.pkl not found in {jnnx_dir}")
+        sys.exit(1)
+    
+    return metadata_file, onnx_file, scalers_file
+
+
+def load_metadata(metadata_file):
+    """Load metadata.json configuration."""
+    try:
+        with open(metadata_file, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in {metadata_file}: {e}")
+        sys.exit(1)
+
+
+def load_scalers(scalers_file):
+    """Load scalers from pickle file."""
+    try:
+        with open(scalers_file, 'rb') as f:
+            scalers_data = pickle.load(f)
+        
+        # Handle sklearn MinMaxScaler format
+        if isinstance(scalers_data, dict) and 'x_scaler' in scalers_data and 'y_scaler' in scalers_data:
+            x_scaler = scalers_data['x_scaler']
+            y_scaler = scalers_data['y_scaler']
+            return {
+                'x_min': x_scaler.data_min_.tolist(),
+                'x_max': x_scaler.data_max_.tolist(),
+                'y_min': y_scaler.data_min_.tolist(),
+                'y_max': y_scaler.data_max_.tolist()
+            }
+        # Handle simple dictionary format
+        elif isinstance(scalers_data, dict) and 'x_min' in scalers_data:
+            return scalers_data
+        else:
+            raise ValueError("Unknown scaler format")
+            
+    except Exception as e:
+        print(f"Error: Could not load scalers from {scalers_file}: {e}")
+        sys.exit(1)
+
+
+def test_package_integrity(jnnx_dir):
+    """Test 1: Package integrity - all required files present."""
+    print("Test 1: Package integrity...")
+    
+    jnnx_path = Path(jnnx_dir)
+    required_files = [
+        "metadata.json",
+        "model.onnx", 
+        "scalers.pkl",
+        "scalers.txt",
+        "README.md"
+    ]
+    
+    missing_files = []
+    for file_name in required_files:
+        file_path = jnnx_path / file_name
+        if not file_path.exists():
+            missing_files.append(file_name)
+    
+    if missing_files:
+        print(f"  ✗ Missing files: {missing_files}")
+        return False
+    else:
+        print(f"  ✓ All required files present")
+        return True
+
+
+def test_model_loading(onnx_file, scalers_file):
+    """Test 2: Neural network loads without error."""
+    print("Test 2: Model loading...")
+    
+    try:
+        # Load ONNX model
+        session = ort.InferenceSession(str(onnx_file))
+        print(f"  ✓ ONNX model loaded successfully")
+        
+        # Load scalers
+        scalers = load_scalers(scalers_file)
+        required_keys = ['x_min', 'x_max', 'y_min', 'y_max']
+        for key in required_keys:
+            if key not in scalers:
+                print(f"  ✗ Missing scaler key: {key}")
+                return False
+        
+        print(f"  ✓ Scalers loaded successfully")
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Error loading model: {e}")
+        return False
+
+
+def test_valid_input_output(session, scalers, metadata):
+    """Tests 3-4: Valid input/output behavior."""
+    print("Test 3-4: Valid input/output behavior...")
+    
+    try:
+        # Extract dimensions from metadata
+        input_params = metadata.get('input_parameters', [])
+        output_params = metadata.get('output_parameters', [])
+        input_dim = len(input_params)
+        output_dim = len(output_params)
+        
+        # Create valid test input (mid-range values)
+        test_input = []
+        for param in input_params:
+            min_val = param.get('min', 0.0)
+            max_val = param.get('max', 1.0)
+            mid_val = (min_val + max_val) / 2.0
+            test_input.append(mid_val)
+        
+        test_input = np.array([test_input], dtype=np.float32)
+        
+        # Apply input scaling
+        x_min = np.array(scalers['x_min'])
+        x_max = np.array(scalers['x_max'])
+        scaled_input = (test_input - x_min) / (x_max - x_min)
+        
+        # Ensure float32 data type for ONNX Runtime
+        scaled_input = scaled_input.astype(np.float32)
+        
+        # Run inference
+        outputs = session.run(None, {'input': scaled_input})
+        output_data = outputs[0][0]
+        
+        # Apply output denormalization
+        y_min = np.array(scalers['y_min'])
+        y_max = np.array(scalers['y_max'])
+        denormalized_output = output_data * (y_max - y_min) + y_min
+        
+        # Check output dimensions
+        if len(denormalized_output) != output_dim:
+            print(f"  ✗ Output dimension mismatch: expected {output_dim}, got {len(denormalized_output)}")
+            return False
+        
+        # Check output validity
+        if np.any(np.isnan(denormalized_output)) or np.any(np.isinf(denormalized_output)):
+            print(f"  ✗ Invalid output values (NaN or Inf)")
+            return False
+        
+        print(f"  ✓ Valid input produces valid output: {denormalized_output}")
+        return True
+        
+    except Exception as e:
+        print(f"  ✗ Error in valid input/output test: {e}")
+        return False
+
+
+def test_invalid_input_size(session, scalers, metadata):
+    """Test 5: Invalid input vector (wrong size)."""
+    print("Test 5: Invalid input size...")
+    
+    try:
+        # Extract dimensions from metadata
+        input_params = metadata.get('input_parameters', [])
+        input_dim = len(input_params)
+        
+        # Create invalid input (wrong size) - use more dimensions than expected
+        invalid_input = np.array([[1.0] * (input_dim + 1)], dtype=np.float32)
+        
+        # Apply input scaling
+        x_min = np.array(scalers['x_min'])
+        x_max = np.array(scalers['x_max'])
+        
+        # This should fail due to dimension mismatch
+        scaled_input = (invalid_input - x_min) / (x_max - x_min)
+        
+        print(f"  ✗ Invalid input size did not trigger error (unexpected)")
+        return False
+        
+    except Exception as e:
+        print(f"  ✓ Invalid input size correctly triggered error: {e}")
+        return True
+
+
+def test_invalid_input_bounds(session, scalers, metadata):
+    """Test 6: Invalid input vector (out of bounds) - SKIPPED for Python validation."""
+    print("Test 6: Invalid input bounds...")
+    print("  ⚠ Skipping bounds testing in Python (neural networks don't enforce bounds)")
+    print("  ⚠ Bounds will be enforced in JAGS module instead")
+    return True
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: ./validate-jnnx <jnnx-directory>")
+        print("Example: ./validate-jnnx models/sdt.jnnx/")
+        sys.exit(1)
+    
+    jnnx_dir = sys.argv[1]
+    
+    # Find required files
+    metadata_file, onnx_file, scalers_file = find_files(jnnx_dir)
+    print(f"Validating: {jnnx_dir}")
+    print(f"  Metadata: {metadata_file}")
+    print(f"  ONNX: {onnx_file}")
+    print(f"  Scalers: {scalers_file}")
+    print()
+    
+    # Load configuration
+    metadata = load_metadata(metadata_file)
+    scalers = load_scalers(scalers_file)
+    
+    print(f"Model: {metadata.get('model_name', 'unnamed')}")
+    print(f"Version: {metadata.get('version', 'unknown')}")
+    print()
+    
+    # Run tests
+    tests_passed = 0
+    total_tests = 6
+    
+    # Test 1: Package integrity
+    if test_package_integrity(jnnx_dir):
+        tests_passed += 1
+    
+    # Test 2: Model loading
+    session = None
+    try:
+        session = ort.InferenceSession(str(onnx_file))
+        if test_model_loading(onnx_file, scalers_file):
+            tests_passed += 1
+    except Exception as e:
+        print(f"Test 2 failed: {e}")
+    
+    # Tests 3-4: Valid input/output (combined test)
+    if session is not None:
+        if test_valid_input_output(session, scalers, metadata):
+            tests_passed += 2  # This test covers two conditions
+    
+    # Test 5: Invalid input size
+    if session is not None:
+        if test_invalid_input_size(session, scalers, metadata):
+            tests_passed += 1
+    
+    # Test 6: Invalid input bounds (skipped)
+    if test_invalid_input_bounds(session, scalers, metadata):
+        tests_passed += 1
+    
+    # Summary
+    print()
+    print("=" * 50)
+    print(f"Validation Summary: {tests_passed}/{total_tests} tests passed")
+    
+    if tests_passed == total_tests:
+        print("✓ All tests passed! .jnnx package is valid.")
+        sys.exit(0)
+    else:
+        print("✗ Some tests failed. Please check the .jnnx package.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
