@@ -328,8 +328,7 @@ class TestPhase3(unittest.TestCase):
         self.assertIn("#include <function/VectorFunction.h>", cpp_content)
         self.assertIn("class TESTMODEL_Function", cpp_content)
         self.assertIn("class TESTMODEL_Module", cpp_content)
-        self.assertIn("extern \"C\"", cpp_content)
-        self.assertIn("load_module()", cpp_content)
+        self.assertIn("TESTMODEL_Module _testmodel_emulator_module", cpp_content)  # Global module instance
     
     def test_generated_makefile_structure(self):
         """Test that generated Makefile has correct structure."""
