@@ -85,6 +85,68 @@ class JNNXPackage:
             errors.append(f"ONNX model validation failed: {e}")
         
         return len(errors) == 0, errors
+    
+    def get_input_parameters(self) -> List[Dict[str, Any]]:
+        """Get input parameter details."""
+        return self.metadata.get('input_parameters', [])
+    
+    def get_output_parameters(self) -> List[Dict[str, Any]]:
+        """Get output parameter details."""
+        return self.metadata.get('output_parameters', [])
+    
+    def get_scaler_parameters(self) -> Dict[str, List[float]]:
+        """Extract scaler parameters for C++ code generation."""
+        scalers = self.scalers
+        
+        if 'x_min' in scalers:
+            # Simple dictionary format
+            return {
+                'x_min': scalers['x_min'],
+                'x_max': scalers['x_max'],
+                'y_min': scalers['y_min'],
+                'y_max': scalers['y_max']
+            }
+        else:
+            # sklearn scaler format
+            x_scaler = scalers.get('x_scaler')
+            y_scaler = scalers.get('y_scaler')
+            if x_scaler and y_scaler:
+                return {
+                    'x_min': x_scaler.data_min_.tolist(),
+                    'x_max': x_scaler.data_max_.tolist(),
+                    'y_min': y_scaler.data_min_.tolist(),
+                    'y_max': y_scaler.data_max_.tolist()
+                }
+            else:
+                raise ValueError("Invalid scaler format")
+    
+    def test_onnx_model(self, test_inputs: Optional[List[np.ndarray]] = None) -> Dict[str, Any]:
+        """Test the ONNX model with sample inputs."""
+        session = ort.InferenceSession(self.get_onnx_path())
+        
+        if test_inputs is None:
+            # Generate default test inputs
+            input_params = self.get_input_parameters()
+            test_inputs = []
+            for _ in range(3):  # 3 test cases
+                test_input = []
+                for param in input_params:
+                    min_val = param.get('min', 0)
+                    max_val = param.get('max', 1)
+                    test_input.append(np.random.uniform(min_val, max_val))
+                test_inputs.append(np.array([test_input], dtype=np.float32))
+        
+        results = []
+        for test_input in test_inputs:
+            result = session.run(['output'], {'input': test_input})
+            results.append(result[0])
+        
+        return {
+            'model_path': self.get_onnx_path(),
+            'input_shape': session.get_inputs()[0].shape,
+            'output_shape': session.get_outputs()[0].shape,
+            'test_results': results
+        }
 
 
 class JAGSModule:
@@ -97,25 +159,166 @@ class JAGSModule:
         
     def generate_code(self) -> None:
         """Generate C++ module code and Makefile."""
-        # This would contain the logic from generate-module script
-        # For now, we'll assume it's handled by the command-line tool
-        pass
+        import shutil
+        import subprocess
+        
+        # Create build directory
+        self.build_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy ONNX model to build directory
+        onnx_source = self.package.get_onnx_path()
+        onnx_dest = self.build_dir / "model.onnx"
+        shutil.copy2(onnx_source, onnx_dest)
+        
+        # Generate scalers.txt
+        scalers_txt = self.build_dir / "scalers.txt"
+        self._generate_scalers_txt(scalers_txt)
+        
+        # Generate C++ source file
+        cpp_file = self.build_dir / f"{self.module_name}.cc"
+        self._generate_cpp_code(cpp_file)
+        
+        # Generate Makefile
+        makefile = self.build_dir / "Makefile"
+        self._generate_makefile(makefile)
     
-    def compile(self) -> bool:
-        """Compile the generated module."""
+    def _generate_scalers_txt(self, output_file: Path) -> None:
+        """Generate scalers.txt file for C++ module."""
+        scalers = self.package.scalers
+        
+        with open(output_file, 'w') as f:
+            if 'x_min' in scalers:
+                # Simple dictionary format
+                for key in ['x_min', 'x_max', 'y_min', 'y_max']:
+                    for val in scalers[key]:
+                        f.write(f"{val}\n")
+            else:
+                # sklearn scaler format
+                x_scaler = scalers.get('x_scaler')
+                y_scaler = scalers.get('y_scaler')
+                if x_scaler and y_scaler:
+                    for val in x_scaler.data_min_:
+                        f.write(f"{val}\n")
+                    for val in x_scaler.data_max_:
+                        f.write(f"{val}\n")
+                    for val in y_scaler.data_min_:
+                        f.write(f"{val}\n")
+                    for val in y_scaler.data_max_:
+                        f.write(f"{val}\n")
+    
+    def _generate_cpp_code(self, output_file: Path) -> None:
+        """Generate C++ module source code."""
+        template_file = Path(__file__).parent / "templates" / "module.cc.template"
+        if not template_file.exists():
+            raise FileNotFoundError(f"Template file not found: {template_file}")
+        
+        with open(template_file, 'r') as f:
+            template = f.read()
+        
+        # Get template variables
+        metadata = self.package.metadata
+        input_params = metadata.get('input_parameters', [])
+        output_params = metadata.get('output_parameters', [])
+        
+        # Replace template variables
+        replacements = {
+            '{{MODULE_NAME}}': self.module_name,
+            '{{MODULE_CLASS}}': f"{self.module_name.replace('_', '').upper()}_Module",
+            '{{FUNCTION_CLASS}}': f"{self.module_name.replace('_', '').upper()}_Function",
+            '{{INPUT_DIM}}': str(len(input_params)),
+            '{{OUTPUT_DIM}}': str(len(output_params)),
+            '{{ONNX_PATH}}': str(self.build_dir / "model.onnx"),
+            '{{SCALING_PATH}}': str(self.build_dir / "scalers.txt"),
+        }
+        
+        # Add input/output limits
+        if input_params:
+            input_mins = [str(p.get('min', 0)) for p in input_params]
+            input_maxs = [str(p.get('max', 1)) for p in input_params]
+            replacements['{{INPUT_MIN}}'] = ', '.join(input_mins)
+            replacements['{{INPUT_MAX}}'] = ', '.join(input_maxs)
+        else:
+            replacements['{{INPUT_MIN}}'] = '0'
+            replacements['{{INPUT_MAX}}'] = '1'
+        
+        if output_params:
+            output_mins = [str(p.get('min', 0)) for p in output_params]
+            output_maxs = [str(p.get('max', 1)) for p in output_params]
+            replacements['{{OUTPUT_MIN}}'] = ', '.join(output_mins)
+            replacements['{{OUTPUT_MAX}}'] = ', '.join(output_maxs)
+        else:
+            replacements['{{OUTPUT_MIN}}'] = '0'
+            replacements['{{OUTPUT_MAX}}'] = '1'
+        
+        # Apply replacements
+        code = template
+        for placeholder, value in replacements.items():
+            code = code.replace(placeholder, value)
+        
+        with open(output_file, 'w') as f:
+            f.write(code)
+    
+    def _generate_makefile(self, output_file: Path) -> None:
+        """Generate Makefile for compilation."""
+        template_file = Path(__file__).parent / "templates" / "Makefile.template"
+        if not template_file.exists():
+            raise FileNotFoundError(f"Makefile template not found: {template_file}")
+        
+        with open(template_file, 'r') as f:
+            template = f.read()
+        
+        # Replace template variables
+        replacements = {
+            '{{MODULE_NAME}}': self.module_name,
+            '{{SOURCE_FILE}}': f"{self.module_name}.cc",
+        }
+        
+        # Apply replacements
+        makefile_content = template
+        for placeholder, value in replacements.items():
+            makefile_content = makefile_content.replace(placeholder, value)
+        
+        with open(output_file, 'w') as f:
+            f.write(makefile_content)
+    
+    def compile(self) -> Tuple[bool, str]:
+        """Compile the generated module.
+        
+        Returns:
+            Tuple of (success, error_message)
+        """
         makefile = self.build_dir / "Makefile"
         if not makefile.exists():
-            raise FileNotFoundError("Makefile not found. Run generate_code() first.")
+            return False, "Makefile not found. Run generate_code() first."
         
         import subprocess
         result = subprocess.run(['make'], cwd=self.build_dir, capture_output=True, text=True)
-        return result.returncode == 0
+        
+        if result.returncode == 0:
+            return True, ""
+        else:
+            error_msg = f"Compilation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            return False, error_msg
     
-    def install(self) -> bool:
-        """Install the compiled module."""
+    def install(self) -> Tuple[bool, str]:
+        """Install the compiled module.
+        
+        Returns:
+            Tuple of (success, error_message)
+        """
+        # Check if .so file exists
+        so_file = self.build_dir / f"{self.module_name}.so"
+        if not so_file.exists():
+            return False, f"Compiled module {so_file} not found. Run compile() first."
+        
         import subprocess
         result = subprocess.run(['sudo', 'make', 'install'], cwd=self.build_dir, capture_output=True, text=True)
-        return result.returncode == 0
+        
+        if result.returncode == 0:
+            return True, ""
+        else:
+            error_msg = f"Installation failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            return False, error_msg
 
 
 def validate_jnnx_package(package_path: str) -> Tuple[bool, List[str]]:
