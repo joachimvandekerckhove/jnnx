@@ -12,7 +12,6 @@
 
 - CORRECT: Pass inputs directly to ONNX, use outputs directly
 - WRONG: Apply additional input scaling or output denormalization
-- Impact: This insight alone saves weeks of debugging
 
 **Verification Pattern**:
 ```python

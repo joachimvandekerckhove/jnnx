@@ -17,6 +17,7 @@ test_simple.*
 __pycache__/
 *.pyc
 *.pyo
+.ipynb_checkpoints/
 
 # Editor files
 *.swp

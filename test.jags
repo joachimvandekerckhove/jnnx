@@ -1,1 +1,0 @@
-model { dummy ~ dnorm(0, 1) }
