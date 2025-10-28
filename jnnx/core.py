@@ -155,7 +155,12 @@ class JAGSModule:
     def __init__(self, package: JNNXPackage, build_dir: str):
         self.package = package
         self.build_dir = Path(build_dir)
-        self.module_name = f"{package.model_name}_emulator"
+        # Avoid duplicating suffix if metadata already includes "_emulator"
+        self.module_name = (
+            package.model_name
+            if package.model_name.endswith("_emulator")
+            else f"{package.model_name}_emulator"
+        )
         
     def generate_code(self) -> None:
         """Generate C++ module code and Makefile."""
@@ -225,9 +230,11 @@ class JAGSModule:
             '{{MODULE_NAME}}': self.module_name,
             '{{MODULE_CLASS}}': f"{self.module_name.replace('_', '').upper()}_Module",
             '{{FUNCTION_CLASS}}': f"{self.module_name.replace('_', '').upper()}_Function",
+            '{{FUNCTION_NAME}}': self.package.model_name,  # Use the original model name for the function
+            '{{BANNER_STRING}}': f"JNNX Module {self.module_name} loaded successfully",
             '{{INPUT_DIM}}': str(len(input_params)),
             '{{OUTPUT_DIM}}': str(len(output_params)),
-            '{{ONNX_PATH}}': str(self.build_dir / "model.onnx"),
+            '{{ONNX_PATH}}': str((self.build_dir / "model.onnx").absolute()),  # Use absolute path
             '{{SCALING_PATH}}': str(self.build_dir / "scalers.txt"),
         }
         
@@ -235,20 +242,20 @@ class JAGSModule:
         if input_params:
             input_mins = [str(p.get('min', 0)) for p in input_params]
             input_maxs = [str(p.get('max', 1)) for p in input_params]
-            replacements['{{INPUT_MIN}}'] = ', '.join(input_mins)
-            replacements['{{INPUT_MAX}}'] = ', '.join(input_maxs)
+            replacements['{{INPUT_MIN}}'] = '{' + ', '.join(input_mins) + '}'
+            replacements['{{INPUT_MAX}}'] = '{' + ', '.join(input_maxs) + '}'
         else:
-            replacements['{{INPUT_MIN}}'] = '0'
-            replacements['{{INPUT_MAX}}'] = '1'
+            replacements['{{INPUT_MIN}}'] = '{0}'
+            replacements['{{INPUT_MAX}}'] = '{1}'
         
         if output_params:
             output_mins = [str(p.get('min', 0)) for p in output_params]
             output_maxs = [str(p.get('max', 1)) for p in output_params]
-            replacements['{{OUTPUT_MIN}}'] = ', '.join(output_mins)
-            replacements['{{OUTPUT_MAX}}'] = ', '.join(output_maxs)
+            replacements['{{OUTPUT_MIN}}'] = '{' + ', '.join(output_mins) + '}'
+            replacements['{{OUTPUT_MAX}}'] = '{' + ', '.join(output_maxs) + '}'
         else:
-            replacements['{{OUTPUT_MIN}}'] = '0'
-            replacements['{{OUTPUT_MAX}}'] = '1'
+            replacements['{{OUTPUT_MIN}}'] = '{0}'
+            replacements['{{OUTPUT_MAX}}'] = '{1}'
         
         # Apply replacements
         code = template
@@ -268,15 +275,26 @@ class JAGSModule:
             template = f.read()
         
         # Replace template variables
+        # Choose a standard JAGS module installation directory for Linux
+        install_dir = "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/"
+
         replacements = {
             '{{MODULE_NAME}}': self.module_name,
             '{{SOURCE_FILE}}': f"{self.module_name}.cc",
+            '{{INSTALL_DIR}}': install_dir,
         }
         
         # Apply replacements
         makefile_content = template
         for placeholder, value in replacements.items():
             makefile_content = makefile_content.replace(placeholder, value)
+        
+        # Normalize ONNX Runtime paths to absolute to avoid CWD issues
+        project_root = Path(__file__).parent.parent
+        abs_onnx_base = str((project_root / 'tmp' / 'onnxruntime-linux-x64-1.23.2').resolve())
+        makefile_content = makefile_content.replace(
+            '../../tmp/onnxruntime-linux-x64-1.23.2', abs_onnx_base
+        )
         
         with open(output_file, 'w') as f:
             f.write(makefile_content)
