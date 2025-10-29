@@ -69,6 +69,23 @@ class JNNXPackage:
             if not (self.package_path / file).exists():
                 errors.append(f"Missing required file: {file}")
         
+        # Required metadata fields
+        for field in [
+            'model_name',
+            'module_name',
+            'function_name',
+            'input_parameters',
+            'output_parameters',
+        ]:
+            if field not in self.metadata:
+                errors.append(f"Missing required metadata field: {field}")
+        
+        # Validate types for parameters
+        if 'input_parameters' in self.metadata and not isinstance(self.metadata['input_parameters'], list):
+            errors.append("'input_parameters' must be a list")
+        if 'output_parameters' in self.metadata and not isinstance(self.metadata['output_parameters'], list):
+            errors.append("'output_parameters' must be a list")
+        
         # Check ONNX model
         try:
             session = ort.InferenceSession(self.get_onnx_path())
@@ -155,12 +172,18 @@ class JAGSModule:
     def __init__(self, package: JNNXPackage, build_dir: str):
         self.package = package
         self.build_dir = Path(build_dir)
-        # Avoid duplicating suffix if metadata already includes "_emulator"
-        self.module_name = (
-            package.model_name
-            if package.model_name.endswith("_emulator")
-            else f"{package.model_name}_emulator"
-        )
+        # Strict naming via metadata (required fields)
+        # Required in metadata.json:
+        #   module_name: the JAGS module name and install artifact basename
+        #   function_name: the JAGS function exposed by the module
+        metadata = self.package.metadata
+        if 'module_name' not in metadata or not str(metadata['module_name']).strip():
+            raise ValueError("metadata.json missing required field 'module_name'")
+        if 'function_name' not in metadata or not str(metadata['function_name']).strip():
+            raise ValueError("metadata.json missing required field 'function_name'")
+
+        self.module_name = str(metadata['module_name']).strip()
+        self.function_name = str(metadata['function_name']).strip()
         
     def generate_code(self) -> None:
         """Generate C++ module code and Makefile."""
@@ -171,9 +194,16 @@ class JAGSModule:
         self.build_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy ONNX model to build directory
-        onnx_source = self.package.get_onnx_path()
+        onnx_source = Path(self.package.get_onnx_path())
         onnx_dest = self.build_dir / "model.onnx"
         shutil.copy2(onnx_source, onnx_dest)
+        
+        # Copy ONNX external data file if it exists
+        onnx_data_source = onnx_source.parent / "model.onnx.data"
+        if onnx_data_source.exists():
+            onnx_data_dest = self.build_dir / "model.onnx.data"
+            shutil.copy2(onnx_data_source, onnx_data_dest)
+            print(f"Copied external data file to {onnx_data_dest}")
         
         # Generate scalers.txt
         scalers_txt = self.build_dir / "scalers.txt"
@@ -230,7 +260,7 @@ class JAGSModule:
             '{{MODULE_NAME}}': self.module_name,
             '{{MODULE_CLASS}}': f"{self.module_name.replace('_', '').upper()}_Module",
             '{{FUNCTION_CLASS}}': f"{self.module_name.replace('_', '').upper()}_Function",
-            '{{FUNCTION_NAME}}': self.package.model_name,  # Use the original model name for the function
+            '{{FUNCTION_NAME}}': self.function_name,
             '{{BANNER_STRING}}': f"JNNX Module {self.module_name} loaded successfully",
             '{{INPUT_DIM}}': str(len(input_params)),
             '{{OUTPUT_DIM}}': str(len(output_params)),
