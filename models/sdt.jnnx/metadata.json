@@ -1,35 +1,37 @@
 {
-    "model_name": "sdt_emulator",
-    "version": "1.0.0",
-    "input_parameters": [
-        {
-            "name": "dprime",
-            "min": -5.0,
-            "max": 5.0
-        },
-        {
-            "name": "criterion",
-            "min": -5.0,
-            "max": 5.0
-        }
-    ],
-    "output_parameters": [
-        {
-            "name": "hit_rate",
-            "min": 0.0,
-            "max": 1.0
-        },
-        {
-            "name": "false_alarm_rate",
-            "min": 0.0,
-            "max": 1.0
-        }
-    ],
-    "transformations": {
-        "input_transform": "minmax",
-        "output_transforms": [
-            "probit",
-            "probit"
-        ]
+  "model_name": "sdt",
+  "module_name": "sdt_emulator",
+  "function_name": "sdt_emulator",
+  "version": "1.0.0",
+  "input_parameters": [
+    {
+      "name": "d_prime",
+      "min": -3.0,
+      "max": 3.0
+    },
+    {
+      "name": "criterion",
+      "min": -2.0,
+      "max": 2.0
     }
+  ],
+  "output_parameters": [
+    {
+      "name": "hit_rate",
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "fa_rate",
+      "min": 0.0,
+      "max": 1.0
+    }
+  ],
+  "transformations": {
+    "input_transform": "minmax",
+    "output_transforms": [
+      "sigmoid",
+      "sigmoid"
+    ]
+  }
 }

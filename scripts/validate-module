@@ -108,8 +108,10 @@ def test_module_loading(jnnx_dir):
         # Extract function name from metadata
         metadata_file = Path(jnnx_dir) / "metadata.json"
         metadata = load_metadata(metadata_file)
-        model_name = metadata.get('model_name', 'unnamed_model')
-        function_name = model_name.replace('_emulator', '').replace('_', '')
+        module_name = metadata.get('module_name')
+        function_name = metadata.get('function_name')
+        if not module_name or not function_name:
+            raise ValueError('metadata.json must include module_name and function_name')
         
         # Create a simple JAGS model to test loading
         model_code = f'''
@@ -128,7 +130,7 @@ def test_module_loading(jnnx_dir):
             nsamples=1,
             nadapt=0,
             nburnin=0,
-            modules=[model_name]  # Load the custom module
+            modules=[module_name]  # Load the custom module
         )
         
         print(f"  ✓ Module loaded successfully in JAGS")
@@ -147,8 +149,10 @@ def test_valid_input_range(jnnx_dir):
         # Load metadata to get function name and dimensions
         metadata_file = Path(jnnx_dir) / "metadata.json"
         metadata = load_metadata(metadata_file)
-        model_name = metadata.get('model_name', 'unnamed_model')
-        function_name = model_name.replace('_emulator', '').replace('_', '')
+        module_name = metadata.get('module_name')
+        function_name = metadata.get('function_name')
+        if not module_name or not function_name:
+            raise ValueError('metadata.json must include module_name and function_name')
         
         input_params = metadata.get('input_parameters', [])
         input_dim = len(input_params)
@@ -179,7 +183,7 @@ def test_valid_input_range(jnnx_dir):
             nsamples=1,
             nadapt=0,
             nburnin=0,
-            modules=[model_name]  # Load the custom module
+            modules=[module_name]  # Load the custom module
         )
         
         print(f"  ✓ Valid input range works: {test_inputs}")
@@ -198,8 +202,10 @@ def test_valid_output(jnnx_dir):
         # Load metadata
         metadata_file = Path(jnnx_dir) / "metadata.json"
         metadata = load_metadata(metadata_file)
-        model_name = metadata.get('model_name', 'unnamed_model')
-        function_name = model_name.replace('_emulator', '').replace('_', '')
+        module_name = metadata.get('module_name')
+        function_name = metadata.get('function_name')
+        if not module_name or not function_name:
+            raise ValueError('metadata.json must include module_name and function_name')
         
         input_params = metadata.get('input_parameters', [])
         output_params = metadata.get('output_parameters', [])
@@ -232,7 +238,7 @@ def test_valid_output(jnnx_dir):
             nsamples=1,
             nadapt=0,
             nburnin=0,
-            modules=[model_name]  # Load the custom module
+            modules=[module_name]  # Load the custom module
         )
         
         # Extract results
@@ -267,8 +273,10 @@ def test_invalid_input_size(jnnx_dir):
         # Load metadata
         metadata_file = Path(jnnx_dir) / "metadata.json"
         metadata = load_metadata(metadata_file)
-        model_name = metadata.get('model_name', 'unnamed_model')
-        function_name = model_name.replace('_emulator', '').replace('_', '')
+        module_name = metadata.get('module_name')
+        function_name = metadata.get('function_name')
+        if not module_name or not function_name:
+            raise ValueError('metadata.json must include module_name and function_name')
         
         # Create JAGS model with wrong number of arguments
         model_code = f'''
@@ -287,7 +295,7 @@ def test_invalid_input_size(jnnx_dir):
             nsamples=1,
             nadapt=0,
             nburnin=0,
-            modules=[model_name]  # Load the custom module
+            modules=[module_name]  # Load the custom module
         )
         
         print(f"  ✗ Invalid input size did not trigger error (unexpected)")
@@ -306,8 +314,10 @@ def test_invalid_input_bounds(jnnx_dir):
         # Load metadata
         metadata_file = Path(jnnx_dir) / "metadata.json"
         metadata = load_metadata(metadata_file)
-        model_name = metadata.get('model_name', 'unnamed_model')
-        function_name = model_name.replace('_emulator', '').replace('_', '')
+        module_name = metadata.get('module_name')
+        function_name = metadata.get('function_name')
+        if not module_name or not function_name:
+            raise ValueError('metadata.json must include module_name and function_name')
         
         input_params = metadata.get('input_parameters', [])
         
@@ -338,7 +348,7 @@ def test_invalid_input_bounds(jnnx_dir):
             nsamples=1,
             nadapt=0,
             nburnin=0,
-            modules=[model_name]  # Load the custom module
+            modules=[module_name]  # Load the custom module
         )
         
         print(f"  ✗ Invalid input bounds did not trigger error (unexpected)")
@@ -362,8 +372,10 @@ def test_numerical_consistency(jnnx_dir):
         metadata = load_metadata(metadata_file)
         scalers = load_scalers(scalers_file)
         
-        model_name = metadata.get('model_name', 'unnamed_model')
-        function_name = model_name.replace('_emulator', '').replace('_', '')
+        module_name = metadata.get('module_name')
+        function_name = metadata.get('function_name')
+        if not module_name or not function_name:
+            raise ValueError('metadata.json must include module_name and function_name')
         
         input_params = metadata.get('input_parameters', [])
         output_params = metadata.get('output_parameters', [])
@@ -410,7 +422,7 @@ def test_numerical_consistency(jnnx_dir):
             nsamples=1,
             nadapt=0,
             nburnin=0,
-            modules=[model_name]  # Load the custom module
+            modules=[module_name]  # Load the custom module
         )
         
         # Extract JAGS results
@@ -460,6 +472,7 @@ def main():
     # Load configuration
     metadata = load_metadata(metadata_file)
     print(f"Model: {metadata.get('model_name', 'unnamed')}")
+    print(f"Module: {metadata.get('module_name', 'unset')}  Function: {metadata.get('function_name', 'unset')}")
     print(f"Version: {metadata.get('version', 'unknown')}")
     print()
     

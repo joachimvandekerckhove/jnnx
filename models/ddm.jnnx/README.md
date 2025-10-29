@@ -1,29 +1,16 @@
-# DDM Neural Network Emulator
+# DDM Cognitive Model Emulator
 
-This package contains a trained neural network emulator for Drift Diffusion Model (DDM) models.
-
-## Model Description
-
-The DDM model predicts response accuracy, mean response time, and response time variance based on three parameters:
-- **boundary**: Decision boundary parameter (threshold for decision)
-- **drift**: Drift rate parameter (speed of evidence accumulation)
-- **ndt**: Non-decision time parameter (time for stimulus encoding and response execution)
-
-## Files
-
-- `model.onnx`: Trained neural network model
-- `scalers.pkl`: Scaling parameters (Python pickle format)
-- `scalers.txt`: Human-readable scaling parameters
-- `metadata.json`: Model specifications and metadata
+## Description
+Diffusion Decision Model mapping drift, boundary, and non-decision time to accuracy and RT statistics
 
 ## Installation Requirements
+- ONNX Runtime: Version 1.23.0 or compatible
+- Python: 3.8+ (if using Python interface)
+- C++: C++17+ (if using C++ interface)
 
-- Python 3.8+
-- ONNX Runtime (`pip install onnxruntime`)
-- NumPy (`pip install numpy`)
+## Usage Examples
 
-## Usage Example
-
+### Python Loading
 ```python
 import onnxruntime as ort
 import pickle
@@ -43,13 +30,15 @@ with open("metadata.json", 'r') as f:
 
 # Transform inputs to [0,1] range
 def transform_inputs(inputs):
-    x_scaler = scalers['x_scaler']
-    return x_scaler.transform(inputs)
+    x_min = np.array(scalers['x_min'])
+    x_max = np.array(scalers['x_max'])
+    return (inputs - x_min) / (x_max - x_min)
 
 # Transform outputs back to real-world values
 def transform_outputs(outputs):
-    y_scaler = scalers['y_scaler']
-    return y_scaler.inverse_transform(outputs)
+    y_min = np.array(scalers['y_min'])
+    y_max = np.array(scalers['y_max'])
+    return outputs * (y_max - y_min) + y_min
 
 # Make prediction
 def predict(boundary, drift, ndt):
@@ -57,41 +46,93 @@ def predict(boundary, drift, ndt):
     scaled_inputs = transform_inputs(inputs)
     outputs = session.run(None, {"input": scaled_inputs})[0]
     return transform_outputs(outputs)
-
-# Example usage
-result = predict(2.0, 1.0, 0.3)
-accuracy, mean_rt, var_rt = result[0][0], result[0][1], result[0][2]
-print(f"Accuracy: {accuracy:.3f}")
-print(f"Mean RT: {mean_rt:.3f}s")
-print(f"RT Variance: {var_rt:.3f}s²")
 ```
 
-## Parameter Ranges
+### C++ Loading
+```cpp
+#include <onnxruntime_cxx_api.h>
+#include <fstream>
+#include <vector>
 
-- **boundary**: 0.5 to 5.0
-- **drift**: -5.0 to 5.0
-- **ndt**: 0.0 to 1.0
+class ModelLoader {
+private:
+    Ort::Env env;
+    Ort::Session session;
+    std::vector<float> x_min, x_max, y_min, y_max;
+    
+public:
+    ModelLoader(const std::string& model_path) 
+        : env(ORT_LOGGING_LEVEL_WARNING, "ModelLoader"),
+          session(env, model_path.c_str(), Ort::SessionOptions{nullptr}) {
+        load_scalers();
+    }
+    
+    void load_scalers() {
+        // Load scaling parameters from scalers.txt
+        std::ifstream file("scalers.txt");
+        std::vector<float> params;
+        float value;
+        while (file >> value) {
+            params.push_back(value);
+        }
+        
+        // Split into x_min, x_max, y_min, y_max
+        size_t n_inputs = params.size() / 4;
+        x_min.assign(params.begin(), params.begin() + n_inputs);
+        x_max.assign(params.begin() + n_inputs, params.begin() + 2*n_inputs);
+        y_min.assign(params.begin() + 2*n_inputs, params.begin() + 3*n_inputs);
+        y_max.assign(params.begin() + 3*n_inputs, params.end());
+    }
+    
+    std::vector<float> predict(float boundary, float drift, float ndt) {
+        // Transform inputs
+        std::vector<float> inputs = {boundary, drift, ndt};
+        for (size_t i = 0; i < inputs.size(); ++i) {
+            inputs[i] = (inputs[i] - x_min[i]) / (x_max[i] - x_min[i]);
+        }
+        
+        // Run inference
+        // ... ONNX Runtime inference code ...
+        
+        // Transform outputs
+        // ... output transformation code ...
+    }
+};
+```
 
-## Output Ranges
+## API Reference
 
-- **accuracy**: 0.0 to 1.0 (probability)
-- **mean_rt**: 0.0 to 10.0 (seconds)
-- **var_rt**: 0.0 to 100.0 (seconds²)
+### Input Parameters
+- **drift**: -3.0 to 3.0
+- **boundary**: 0.5 to 3.0
+- **ndt**: 0.2 to 0.6
+
+### Output Parameters
+- **accuracy**: Model output
+- **mean_rt**: Model output
+- **var_rt**: Model output
+
+## Model Information
+- Architecture: [64, 32]
+- Training epochs: 100
+- Best validation loss: 0.000376
+- Trained: Unknown
 
 ## Troubleshooting
 
 ### Common Issues
+1. **ONNX Runtime Error**: Ensure ONNX Runtime version 1.23.0+ is installed
+2. **File Not Found**: Verify all required files are present in the package
+3. **Input Validation**: Always validate inputs against parameter ranges
+4. **Pickle Security**: Only load scalers.pkl from trusted sources
 
-1. **ImportError**: Make sure ONNX Runtime is installed
-2. **Invalid input**: Ensure parameters are within the specified ranges
-3. **Scaling errors**: Verify scalers.pkl is not corrupted
+### Platform Support
+- **Primary**: Linux x64
+- **Secondary**: Windows x64, macOS x64 (with compatible ONNX Runtime)
 
-### Validation
-
-Test the model with known parameter values:
-```python
-# Test with boundary=2.0, drift=1.0, ndt=0.3
-result = predict(2.0, 1.0, 0.3)
-accuracy, mean_rt, var_rt = result[0][0], result[0][1], result[0][2]
-# Expected: accuracy ≈ 0.85, mean_rt ≈ 1.2s, var_rt ≈ 0.5s²
-```
+## Files
+- `model.onnx`: Trained neural network model
+- `scalers.pkl`: Scaling parameters (Python pickle)
+- `scalers.txt`: Human-readable scaling parameters
+- `metadata.json`: Model specifications and metadata
+- `README.md`: This documentation

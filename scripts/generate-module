@@ -145,11 +145,14 @@ def generate_module_code(metadata, scalers, onnx_file, output_dir):
     template_content = template_file.read_text()
     
     # Extract information from metadata
-    model_name = metadata.get('model_name', 'unnamed_model')
-    function_name = model_name.replace('_emulator', '').replace('_', '')
-    function_class = f"{function_name.upper()}_Function"
-    module_name = f"{function_name}_emulator"
-    module_class = f"{function_name.upper()}_Module"
+    # Require explicit names from metadata
+    module_name = metadata.get('module_name')
+    function_name = metadata.get('function_name')
+    if not module_name or not function_name:
+        print('Error: metadata.json must include module_name and function_name')
+        sys.exit(1)
+    function_class = f"{module_name.replace('_','').upper()}_Function"
+    module_class = f"{module_name.replace('_','').upper()}_Module"
     
     input_dim, output_dim = extract_dimensions_from_metadata(metadata)
     input_min, input_max, output_min, output_max = extract_limits_from_metadata(metadata)
@@ -213,9 +216,10 @@ def generate_makefile(metadata, output_dir):
     template_content = template_file.read_text()
     
     # Extract information from metadata
-    model_name = metadata.get('model_name', 'unnamed_model')
-    function_name = model_name.replace('_emulator', '').replace('_', '')
-    module_name = f"{function_name}_emulator"
+    module_name = metadata.get('module_name')
+    if not module_name:
+        print('Error: metadata.json must include module_name')
+        sys.exit(1)
     
     # Default installation directory
     install_dir = "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/"
