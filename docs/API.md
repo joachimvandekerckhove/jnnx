@@ -170,13 +170,16 @@ model {
 }
 '''
 
+from jnnx import JNNXPackage
+MODULE_NAME = JNNXPackage('models/sdt.jnnx').metadata['module_name']
+
 # Run JAGS with the custom module
 result = py2jags.run_jags(
     model_string=model_string,
     data_dict={'n': 1},
     nchains=1, nsamples=1, nadapt=0, nburnin=0,
     monitorparams=['result'],
-    modules=['sdt_emulator']  # Load the custom module
+    modules=[MODULE_NAME]  # Load the custom module
 )
 
 # Extract results
@@ -218,7 +221,7 @@ result = py2jags.run_jags(
     data_dict={'n': 1},
     nchains=1, nsamples=1, nadapt=0, nburnin=0,
     monitorparams=['result'],
-    modules=[f'{package.model_name}_emulator']
+    modules=[package.metadata['module_name']]
 )
 
 # 5. Extract and use results

@@ -59,13 +59,16 @@ model {
 }
 '''
 
+from jnnx import JNNXPackage
+MODULE_NAME = JNNXPackage('models/sdt.jnnx').metadata['module_name']
+
 # Run JAGS with custom module
 result = py2jags.run_jags(
     model_string=model_string,
     data_dict={'n': 1},
     nchains=1, nsamples=1, nadapt=0, nburnin=0,
     monitorparams=['result'],
-    modules=['sdt_emulator']
+    modules=[MODULE_NAME]
 )
 
 # Extract results
