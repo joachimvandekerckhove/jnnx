@@ -63,6 +63,8 @@ The `.jnnx` format is a standardized package for exporting trained neural networ
   ```json
   {
       "model_name": "ddm_emulator",
+      "module_name": "ddm_emulator",
+      "function_name": "ddm_emulator",
       "version": "1.0.0",
       "input_parameters": [
           {"name": "boundary", "min": 0.5, "max": 5.0},
@@ -80,6 +82,16 @@ The `.jnnx` format is a standardized package for exporting trained neural networ
       }
   }
   ```
+
+- **Required Fields**:
+  - `model_name` (string): Short identifier for the model
+  - `module_name` (string): Name of the compiled JAGS module and artifacts
+  - `function_name` (string): Name of the function exposed in JAGS
+  - `version` (string): Semantic version of the model package
+  - `input_parameters` (array): List of inputs with `name`, `min`, `max`
+  - `output_parameters` (array): List of outputs with `name`, `min`, `max`
+
+The `module_name` and `function_name` are used during C++ code generation. They must be present; there are no defaults.
 
 ### 5. `README.md`
 - **Format**: Markdown
@@ -239,6 +251,7 @@ ddm4.jnnx/
 - Input/output dimensions must match metadata
 - Scaling parameters must be consistent across files
 - Model must produce valid outputs for test inputs
+- `metadata.json` must include `module_name` and `function_name`
 
 ## Versioning
 
