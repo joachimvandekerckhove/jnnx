@@ -105,7 +105,7 @@ public:
 ### Input Parameters
 - **drift**: -3.0 to 3.0
 - **boundary**: 0.5 to 3.0
-- **ndt**: 0.2 to 0.6
+- **ndt**: 0.1 to 1.0
 
 ### Output Parameters
 - **accuracy**: Model output
@@ -113,9 +113,9 @@ public:
 - **var_rt**: Model output
 
 ## Model Information
-- Architecture: [64, 32]
-- Training epochs: 100
-- Best validation loss: 0.000376
+- Architecture: DDMEmulatorMLP([128, 128, 64])
+- Training epochs: 29
+- Best validation loss: 0.001828
 - Trained: Unknown
 
 ## Troubleshooting
