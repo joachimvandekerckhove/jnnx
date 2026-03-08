@@ -36,9 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modern Python packaging with pyproject.toml
 
 ### Documentation
-- Complete API documentation in `docs/API.md`
-- Installation guide in `docs/INSTALLATION.md`
-- Examples and tutorials in `docs/EXAMPLES.md`
+- Complete API documentation in `docs/api/API.md`
+- Installation guide in `docs/guides/INSTALLATION.md`
+- Examples and tutorials in `docs/examples/EXAMPLES.md`
 - Project handoff memo with technical insights
 - JAGS interface memo with common issues and solutions
 - Contributing guidelines

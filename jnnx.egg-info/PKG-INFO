@@ -4,7 +4,14 @@ Version: 1.0.0
 Summary: JAGS Neural Network eXtension - Evaluate ONNX models as deterministic nodes in JAGS
 Home-page: https://github.com/joachimvandekerckhove/jnnx
 Author: Joachim Vandekerckhove
-Author-email: joachim@uci.edu
+Author-email: Joachim Vandekerckhove <joachim@uci.edu>
+Maintainer-email: Joachim Vandekerckhove <joachim@uci.edu>
+License: MIT
+Project-URL: Homepage, https://github.com/joachimvandekerckhove/jnnx
+Project-URL: Repository, https://github.com/joachimvandekerckhove/jnnx.git
+Project-URL: Documentation, https://github.com/joachimvandekerckhove/jnnx#readme
+Project-URL: Bug Tracker, https://github.com/joachimvandekerckhove/jnnx/issues
+Keywords: jags,onnx,neural-networks,bayesian,mcmc
 Classifier: Development Status :: 5 - Production/Stable
 Classifier: Intended Audience :: Science/Research
 Classifier: License :: OSI Approved :: MIT License
@@ -25,16 +32,19 @@ Requires-Dist: numpy>=1.20.0
 Requires-Dist: scikit-learn>=1.0.0
 Requires-Dist: onnxruntime>=1.15.0
 Requires-Dist: py2jags>=0.1.0
-Requires-Dist: pathlib2>=2.3.0; python_version < "3.4"
+Provides-Extra: dev
+Requires-Dist: pytest>=6.0; extra == "dev"
+Requires-Dist: pytest-cov>=2.0; extra == "dev"
+Requires-Dist: black>=21.0; extra == "dev"
+Requires-Dist: flake8>=3.8; extra == "dev"
+Requires-Dist: mypy>=0.800; extra == "dev"
+Provides-Extra: docs
+Requires-Dist: sphinx>=4.0; extra == "docs"
+Requires-Dist: sphinx-rtd-theme>=0.5; extra == "docs"
+Requires-Dist: myst-parser>=0.15; extra == "docs"
 Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: description
-Dynamic: description-content-type
 Dynamic: home-page
-Dynamic: requires-dist
 Dynamic: requires-python
-Dynamic: summary
 
 # JNNX - JAGS Neural Network eXtension
 
@@ -104,6 +114,23 @@ pip install git+https://github.com/joachimvandekerckhove/jnnx.git
 - `generate-module`: Generate C++ JAGS module from .jnnx package
 - `validate-module`: Test compiled JAGS module
 
+## Testing
+
+Run tests from the project root:
+
+```bash
+# Legacy phase-based suite
+python tests/test-suite.py
+
+# Comprehensive coverage suite
+python tests/test_suite_full.py -v
+
+# Notebook integration smoke check
+python scripts/check-workflow-sdt.py
+```
+
+Both suites should pass before opening a pull request.
+
 ## Requirements
 
 - JAGS 4.3.0+
@@ -115,9 +142,12 @@ pip install git+https://github.com/joachimvandekerckhove/jnnx.git
 ## Documentation
 
 See `docs/` directory for detailed documentation:
-- `PROJECT_HANDOFF_MEMO.md`: Complete technical guide
-- `jnnx-format-spec.md`: .jnnx package format specification
-- `jags-interface-memo.md`: JAGS integration notes
+- `docs/GETTING_STARTED.md`: First module walkthrough
+- `docs/guides/INSTALLATION.md`: Installation and environment setup
+- `docs/examples/EXAMPLES.md`: End-to-end examples and tutorials
+- `docs/api/API.md`: Public API and CLI reference
+- `docs/api/SCALERS_FORMAT.md`: Scaler format details
+- `docs/internal/PROJECT_HANDOFF_MEMO.md`: Technical implementation memo
 
 ## Examples
 

@@ -71,8 +71,8 @@ validate-jnnx --help
 generate-module --help
 validate-module --help
 
-# Test with included example
-validate-jnnx jnnx/models/sdt.jnnx
+# Test with included example (from repo root; or use path to your .jnnx package)
+validate-jnnx models/sdt.jnnx
 ```
 
 ## Python API Test
@@ -81,14 +81,14 @@ validate-jnnx jnnx/models/sdt.jnnx
 # Test the Python API
 from jnnx import JNNXPackage, validate_jnnx_package
 
-# Load and validate the SDT example
-package = JNNXPackage("jnnx/models/sdt.jnnx")
+# Load and validate the SDT example (from repo root)
+package = JNNXPackage("models/sdt.jnnx")
 print(f"Package: {package.model_name}")
 print(f"Input dim: {package.input_dim}")
 print(f"Output dim: {package.output_dim}")
 
 # Validate package
-is_valid, errors = validate_jnnx_package("jnnx/models/sdt.jnnx")
+is_valid, errors = validate_jnnx_package("models/sdt.jnnx")
 print(f"Validation: {'PASS' if is_valid else 'FAIL'}")
 ```
 
@@ -169,7 +169,7 @@ Note: This does not remove JAGS modules that were installed. You may need to man
 
 After successful installation:
 
-1. **Read the documentation**: See `docs/API.md` for detailed API usage
+1. **Read the documentation**: See `docs/api/API.md` for detailed API usage
 2. **Try the examples**: Run the notebooks in `demos/` directory
 3. **Create your own models**: Follow the `.jnnx` format specification
 4. **Generate modules**: Use `generate-module` to create JAGS modules

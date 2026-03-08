@@ -55,7 +55,7 @@ Thank you for your interest in contributing to JNNX! This document provides guid
 - Update relevant documentation when adding features
 - Include examples in docstrings
 - Update README.md if needed
-- Add to API documentation in `docs/API.md`
+- Add to API documentation in `docs/api/API.md`
 
 ## Types of Contributions
 
@@ -129,16 +129,18 @@ When requesting features, please include:
 ## Project Structure
 
 ```
-jnnx/
+<repo root>/
 ├── jnnx/                 # Main package
 │   ├── __init__.py      # Package initialization
 │   ├── core.py          # Core functionality
 │   ├── utils.py         # Utility functions
-│   ├── scripts/         # Command-line scripts
+│   ├── scripts/         # CLI implementations (canonical)
 │   ├── templates/       # C++ templates
-│   └── models/          # Example models
+│   └── models/          # Example model packages (e.g. ddm.jnnx)
+├── scripts/             # Repo-local CLI wrappers (*.py)
+├── models/              # Example .jnnx packages (e.g. sdt.jnnx)
 ├── docs/                # Documentation
-├── demos/               # Example notebooks
+├── demos/               # Example notebooks and scripts
 ├── tests/               # Test suite
 ├── setup.py             # Package setup
 ├── pyproject.toml       # Modern Python packaging

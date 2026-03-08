@@ -66,6 +66,23 @@ pip install git+https://github.com/joachimvandekerckhove/jnnx.git
 - `generate-module`: Generate C++ JAGS module from .jnnx package
 - `validate-module`: Test compiled JAGS module
 
+## Testing
+
+Run tests from the project root:
+
+```bash
+# Legacy phase-based suite
+python tests/test-suite.py
+
+# Comprehensive coverage suite
+python tests/test_suite_full.py -v
+
+# Notebook integration smoke check
+python scripts/check-workflow-sdt.py
+```
+
+Both suites should pass before opening a pull request.
+
 ## Requirements
 
 - JAGS 4.3.0+
@@ -77,9 +94,13 @@ pip install git+https://github.com/joachimvandekerckhove/jnnx.git
 ## Documentation
 
 See `docs/` directory for detailed documentation:
-- `PROJECT_HANDOFF_MEMO.md`: Complete technical guide
-- `jnnx-format-spec.md`: .jnnx package format specification
-- `jags-interface-memo.md`: JAGS integration notes
+- `docs/GETTING_STARTED.md`: First module walkthrough
+- `docs/SKILL.md`: AI-agent operating playbook for JNNX tasks
+- `docs/guides/INSTALLATION.md`: Installation and environment setup
+- `docs/examples/EXAMPLES.md`: End-to-end examples and tutorials
+- `docs/api/API.md`: Public API and CLI reference
+- `docs/api/SCALERS_FORMAT.md`: Scaler format details
+- `docs/internal/PROJECT_HANDOFF_MEMO.md`: Technical implementation memo
 
 ## Examples
 

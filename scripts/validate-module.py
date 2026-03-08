@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Root wrapper for packaged extract-scalers implementation."""
+"""Root wrapper for packaged validate-module implementation."""
 
 import sys
 from pathlib import Path
@@ -9,7 +9,7 @@ def main():
     project_root = Path(__file__).resolve().parents[1]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
-    from jnnx.scripts.extract_scalers import main as entry
+    from jnnx.scripts.validate_module import main as entry
     entry()
 
 

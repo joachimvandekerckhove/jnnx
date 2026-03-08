@@ -86,6 +86,16 @@ print(f"RT Variance: {var_rt:.3f}s²")
 2. **Invalid input**: Ensure parameters are within the specified ranges
 3. **Scaling errors**: Verify scalers.pkl is not corrupted
 
+### Smoke test
+
+From the repo root, run the package test script (works from any working directory):
+
+```bash
+python jnnx/models/ddm.jnnx/test_package.py
+```
+
+Or from this directory: `python test_package.py`
+
 ### Validation
 
 Test the model with known parameter values:

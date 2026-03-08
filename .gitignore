@@ -1,10 +1,16 @@
 # Temporary files and generated artifacts
 tmp/
+demos/tmp/
 build/
+scalers.json
+*.egg-info/
 *.o
 *.so
 *.la
 *.tgz
+.cursor/
+.venv/
+.golem-forge-repo/
 
 # ONNX Runtime extraction
 onnxruntime-linux-x64-*/
@@ -17,6 +23,8 @@ test_simple.*
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
 .ipynb_checkpoints/
 
 # Editor files
@@ -27,3 +35,7 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Generated demo outputs (plots from demos)
+demos/ddm_*.png
+demos/ddm-*.png

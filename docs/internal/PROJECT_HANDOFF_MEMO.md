@@ -92,14 +92,14 @@ ModelName_Module _modelname_module;
 ## Key Files and Structure
 
 ### Core Scripts
-- `scripts/jnnx-setup` - JSON configuration interface
-- `scripts/validate-jnnx` - Package validation
-- `scripts/generate-module` - C++ code generation
-- `scripts/validate-module` - JAGS integration testing
+- `scripts/jnnx-setup.py` - JSON configuration interface
+- `scripts/validate-jnnx.py` - Package validation
+- `scripts/generate-module.py` - C++ code generation
+- `scripts/validate-module.py` - JAGS integration testing
 
 ### Templates
-- `src/templates/module.cc.template` - C++ module template
-- `src/templates/Makefile.template` - Build configuration
+- `jnnx/templates/module.cc.template` - C++ module template
+- `jnnx/templates/Makefile.template` - Build configuration
 
 ### Configuration
 - `.jnnx` format specification in `docs/governance/jnnx-format-spec.md`

@@ -114,8 +114,8 @@ public:
 
 ## Model Information
 - Architecture: DDMEmulatorMLP([128, 128, 64])
-- Training epochs: 29
-- Best validation loss: 0.001828
+- Training epochs: 37
+- Best validation loss: 0.001209
 - Trained: Unknown
 
 ## Troubleshooting

@@ -11,8 +11,8 @@ First, you need an ONNX model file. For this example, we'll use the included SDT
 ```python
 from jnnx import JNNXPackage
 
-# Load the example SDT package
-package = JNNXPackage("jnnx/models/sdt.jnnx")
+# Load the example SDT package (from repo root: models/sdt.jnnx)
+package = JNNXPackage("models/sdt.jnnx")
 print(f"Model: {package.model_name}")
 print(f"Input dimension: {package.input_dim}")
 print(f"Output dimension: {package.output_dim}")
@@ -24,7 +24,7 @@ print(f"Output dimension: {package.output_dim}")
 from jnnx import validate_jnnx_package
 
 # Validate package integrity
-is_valid, errors = validate_jnnx_package("jnnx/models/sdt.jnnx")
+is_valid, errors = validate_jnnx_package("models/sdt.jnnx")
 if is_valid:
     print("Package validation: PASSED")
 else:
@@ -37,7 +37,7 @@ else:
 
 ```bash
 # Generate C++ module code
-generate-module jnnx/models/sdt.jnnx
+generate-module models/sdt.jnnx
 
 # Compile the module
 cd tmp/sdt.jnnx_build
@@ -216,7 +216,7 @@ def generate_and_install_module(package_path, custom_build_dir=None):
 
 # Use the function
 try:
-    generate_and_install_module("jnnx/models/sdt.jnnx")
+    generate_and_install_module("models/sdt.jnnx")
 except Exception as e:
     print(f"Error: {e}")
 ```
@@ -256,7 +256,7 @@ test_cases = [
     [1.0, 1.0]
 ]
 
-results = test_model_with_multiple_inputs("jnnx/models/sdt.jnnx/model.onnx", test_cases)
+results = test_model_with_multiple_inputs("models/sdt.jnnx/model.onnx", test_cases)
 ```
 
 ## Integration Examples
@@ -270,7 +270,7 @@ from jnnx import JNNXPackage
 import py2jags
 
 # Load JNNX package
-package = JNNXPackage("jnnx/models/sdt.jnnx")
+package = JNNXPackage("models/sdt.jnnx")
 
 # Define PyMC model
 with pm.Model() as model:
