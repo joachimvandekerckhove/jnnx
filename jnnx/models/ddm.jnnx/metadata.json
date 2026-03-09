@@ -1,5 +1,7 @@
 {
     "model_name": "ddm_emulator",
+    "module_name": "ddm_emulator",
+    "function_name": "ddm_emulator",
     "version": "1.0.0",
     "input_parameters": [
         {"name": "boundary", "min": 0.5, "max": 5.0},
