@@ -308,23 +308,19 @@ class JAGSModule:
         # Choose a standard JAGS module installation directory for Linux
         install_dir = "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/"
 
+        # ONNX Runtime: prefer ONNXRUNTIME_DIR env var so users are not tied to package location
+        onnx_default = os.environ.get('ONNXRUNTIME_DIR', '')
         replacements = {
             '{{MODULE_NAME}}': self.module_name,
             '{{SOURCE_FILE}}': f"{self.module_name}.cc",
             '{{INSTALL_DIR}}': install_dir,
+            '{{ONNXRUNTIME_DIR_DEFAULT}}': onnx_default,
         }
         
         # Apply replacements
         makefile_content = template
         for placeholder, value in replacements.items():
             makefile_content = makefile_content.replace(placeholder, value)
-        
-        # Normalize ONNX Runtime paths to absolute to avoid CWD issues
-        project_root = Path(__file__).parent.parent
-        abs_onnx_base = str((project_root / 'tmp' / 'onnxruntime-linux-x64-1.23.2').resolve())
-        makefile_content = makefile_content.replace(
-            '../../tmp/onnxruntime-linux-x64-1.23.2', abs_onnx_base
-        )
         
         with open(output_file, 'w') as f:
             f.write(makefile_content)
