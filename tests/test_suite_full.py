@@ -73,7 +73,6 @@ def _create_valid_jnnx(tmp_dir, name="test.jnnx", metadata=None, copy_onnx=True)
         shutil.copy(SDT_JNNX / "model.onnx", jnnx / "model.onnx")
     else:
         (jnnx / "model.onnx").write_bytes(b"dummy")
-    (jnnx / "scalers.txt").write_text("0.0\n1.0\n0.0\n1.0\n")
     (jnnx / "README.md").write_text("# Test\n")
     return jnnx
 
@@ -133,7 +132,7 @@ class TestJnnxUtils(unittest.TestCase):
         self.assertTrue((out / "metadata.json").exists())
         self.assertTrue((out / "model.onnx").exists())
         self.assertTrue((out / "scalers.pkl").exists())
-        self.assertTrue((out / "scalers.txt").exists())
+        self.assertTrue((out / "scalers.json").exists())
         meta = json.loads((out / "metadata.json").read_text())
         self.assertEqual(meta["model_name"], "m")
         self.assertEqual(len(meta["input_parameters"]), 2)
@@ -650,7 +649,7 @@ class TestCLIUpdateScalers(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0)
         self.assertTrue((jnnx / "scalers.pkl").exists())
-        self.assertTrue((jnnx / "scalers.txt").exists())
+        self.assertTrue((jnnx / "scalers.json").exists())
 
 
 # ---------------------------------------------------------------------------

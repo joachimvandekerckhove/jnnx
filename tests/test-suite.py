@@ -169,10 +169,6 @@ class TestPhase2(unittest.TestCase):
         with open(self.jnnx_dir / "scalers.pkl", 'wb') as f:
             pickle.dump(scalers, f)
         
-        # Create scalers.txt
-        scalers_txt = "0.0\n1.0\n0.0\n1.0\n"
-        (self.jnnx_dir / "scalers.txt").write_text(scalers_txt)
-        
         # Create README.md
         (self.jnnx_dir / "README.md").write_text("# Test Model\nTest model description.")
     
@@ -434,9 +430,16 @@ class TestPhase4(unittest.TestCase):
             result = subprocess.run([
                 "make", "-C", str(build_dir)
             ], capture_output=True, text=True)
-            
-            # Compilation may fail due to missing dependencies, but should attempt
-            self.assertIn("g++", result.stderr or result.stdout)
+            out = result.stderr or result.stdout or ""
+            # Compilation may succeed, or fail due to missing deps (e.g. ONNX headers)
+            # Either way we require evidence that make ran the compile step
+            compilation_attempted = (
+                result.returncode == 0
+                or "g++" in out
+                or ("fatal error" in out and ".cc" in out)
+                or "onnxruntime" in out.lower()
+            )
+            self.assertTrue(compilation_attempted, msg=f"Expected compile attempt, got: {out[:500]}")
     
     def test_sdt_module_structure(self):
         """Test SDT module has correct structure."""
@@ -721,10 +724,6 @@ class TestIntegration(unittest.TestCase):
         with open(self.jnnx_dir / "scalers.pkl", 'wb') as f:
             pickle.dump(scalers, f)
         
-        # Create scalers.txt
-        scalers_txt = "0.0\n-1.0\n1.0\n1.0\n0.0\n0.0\n1.0\n1.0\n"
-        (self.jnnx_dir / "scalers.txt").write_text(scalers_txt)
-        
         # Create README.md
         (self.jnnx_dir / "README.md").write_text("# Integration Test Model\nTest model for integration testing.")
     
@@ -794,9 +793,15 @@ class TestIntegration(unittest.TestCase):
             result = subprocess.run([
                 "make", "-C", str(build_dir)
             ], capture_output=True, text=True)
-            
-            # Should attempt compilation
-            self.assertIn("g++", result.stderr or result.stdout)
+            out = result.stderr or result.stdout or ""
+            # Compilation may succeed, or fail due to missing deps (e.g. ONNX headers)
+            compilation_attempted = (
+                result.returncode == 0
+                or "g++" in out
+                or ("fatal error" in out and ".cc" in out)
+                or "onnxruntime" in out.lower()
+            )
+            self.assertTrue(compilation_attempted, msg=f"Expected compile attempt, got: {out[:500]}")
         
         # Phase 5: Validate module
         result = subprocess.run([
