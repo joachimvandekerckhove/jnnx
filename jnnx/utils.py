@@ -96,7 +96,7 @@ def create_jnnx_package(output_path: str, model_name: str,
 
 
 def test_onnx_model(onnx_path: str, test_inputs: List[np.ndarray]) -> Dict[str, Any]:
-    """Test an ONNX model with given inputs."""
+    """Test an ONNX model with given inputs. Inputs should be in raw (original) domain per the scaling contract."""
     session = ort.InferenceSession(onnx_path)
     
     results = []

@@ -28,7 +28,7 @@ is_valid, errors = package.validate()
 
 ### JAGSModule
 
-Represents a generated JAGS module.
+Represents a generated JAGS module. `compile()` and `install()` return `(success: bool, error_message: str)`; check success and handle the error message on failure.
 
 ```python
 from jnnx import JAGSModule
@@ -40,11 +40,15 @@ module = JAGSModule(package, "tmp/sdt.jnnx_build")
 # Generate C++ code
 module.generate_code()
 
-# Compile module
-success = module.compile()
+# Compile module (returns (success: bool, error_message: str))
+success, err = module.compile()
+if not success:
+    print(err)
 
-# Install module
-success = module.install()
+# Install module (returns (success: bool, error_message: str))
+success, err = module.install()
+if not success:
+    print(err)
 ```
 
 ## Utility Functions
@@ -205,8 +209,12 @@ if not is_valid:
 # 3. Generate and compile module
 module = JAGSModule(package, f"tmp/{package.model_name}.jnnx_build")
 module.generate_code()
-module.compile()
-module.install()
+ok, err = module.compile()
+if not ok:
+    raise RuntimeError(err)
+ok, err = module.install()
+if not ok:
+    raise RuntimeError(err)
 
 # 4. Use in JAGS
 model_string = f'''
