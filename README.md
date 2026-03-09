@@ -4,11 +4,11 @@ JNNX enables evaluation of trained neural networks (ONNX models) as deterministi
 
 ## Features
 
-- **ONNX Model Integration**: Load and evaluate ONNX models directly in JAGS
-- **Automatic Module Generation**: Generate C++ JAGS modules from ONNX models
-- **Scaler Support**: Handle input/output scaling automatically
-- **Validation Suite**: Comprehensive testing and validation tools
-- **Multiple Model Support**: Works with various neural network architectures
+- **ONNX Model Integration**: Load and evaluate ONNX models directly in JAGS (raw I/O; scaling baked into the ONNX graph)
+- **Automatic Module Generation**: Generate C++ JAGS modules from `.jnnx` packages
+- **Portable scalers**: Support for `scalers.pkl` or `scalers.json`; validation checks raw I/O contract
+- **Validation Suite**: Package validation, module generation, and optional compile/install
+- **Multiple Model Support**: Fixed or dynamic batch dimensions; various architectures
 
 ## Installation
 
@@ -18,26 +18,31 @@ pip install git+https://github.com/joachimvandekerckhove/jnnx.git
 
 ## Quick Start
 
-1. **Prepare your model**:
+1. **Prepare your model**  
+   Your ONNX model must use **raw (original-domain) inputs and outputs**; put any scaling inside the ONNX graph. Create a `.jnnx` package:
    ```bash
-   # Create a .jnnx package directory
    mkdir my_model.jnnx
    cp model.onnx my_model.jnnx/
-   cp scalers.pkl my_model.jnnx/
-   # Create metadata.json (see documentation)
+   # Scalers: either scalers.pkl or scalers.json (see docs/api/SCALERS_FORMAT.md)
+   cp scalers.pkl my_model.jnnx/   # or create scalers.json
+   # metadata.json must include module_name, function_name, input_parameters, output_parameters
    ```
+   Use `jnnx-setup my_model.jnnx` to edit metadata, or see `docs/api/API.md`.
 
 2. **Generate JAGS module**:
    ```bash
-   generate-module my_model.jnnx
+   python scripts/generate-module.py my_model.jnnx
    ```
 
-3. **Compile and install**:
+3. **Compile and install**  
+   Set `ONNXRUNTIME_DIR` to your ONNX Runtime directory, then build:
    ```bash
    cd tmp/my_model.jnnx_build
+   export ONNXRUNTIME_DIR=/path/to/onnxruntime-linux-x64-1.23.2
    make
    sudo make install
    ```
+   Or run `make ONNXRUNTIME_DIR=/path/to/...` if you prefer not to export.
 
 4. **Use in JAGS**:
    ```python
@@ -93,20 +98,18 @@ Both suites should pass before opening a pull request.
 
 ## Documentation
 
-See `docs/` directory for detailed documentation:
-- `docs/GETTING_STARTED.md`: First module walkthrough
+- `docs/api/API.md`: Public API, scaling contract (raw I/O), and CLI reference
+- `docs/api/SCALERS_FORMAT.md`: Portable scaler format (`scalers.json` / `scalers.pkl`)
 - `docs/SKILL.md`: AI-agent operating playbook for JNNX tasks
-- `docs/guides/INSTALLATION.md`: Installation and environment setup
 - `docs/examples/EXAMPLES.md`: End-to-end examples and tutorials
-- `docs/api/API.md`: Public API and CLI reference
-- `docs/api/SCALERS_FORMAT.md`: Scaler format details
+- `docs/GETTING_STARTED.md`: First module walkthrough
+- `docs/guides/INSTALLATION.md`: Installation and environment setup
 - `docs/internal/PROJECT_HANDOFF_MEMO.md`: Technical implementation memo
 
 ## Examples
 
-See `demos/` directory for example workflows:
-- `workflow-sdt.ipynb`: Signal Detection Theory model
-- `workflow-ddm.ipynb`: Drift Diffusion Model
+- **`demos/end-to-end-ddm.py`**: Full pipeline (train → export ONNX with raw I/O → create `.jnnx` package → validate → generate module). Optional compile and JAGS check. Run: `python demos/end-to-end-ddm.py`
+- **Notebooks**: `workflow-sdt.ipynb`, `workflow-ddm.ipynb` for Signal Detection Theory and Drift Diffusion Model
 
 ## License
 
