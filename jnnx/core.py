@@ -100,18 +100,32 @@ class JNNXPackage:
         if 'output_parameters' in self.metadata and not isinstance(self.metadata['output_parameters'], list):
             errors.append("'output_parameters' must be a list")
         
-        # Check ONNX model
+        # Check ONNX model (allow dynamic batch: shape [batch, N] with batch 1 or dynamic)
         try:
             session = ort.InferenceSession(self.get_onnx_path())
             input_shape = session.get_inputs()[0].shape
             output_shape = session.get_outputs()[0].shape
-            
-            if len(input_shape) != 2 or input_shape[0] != 1:
-                errors.append("ONNX model must have input shape [1, N]")
-            
-            if len(output_shape) != 2 or output_shape[0] != 1:
-                errors.append("ONNX model must have output shape [1, M]")
-                
+            expected_in_dim = self.input_dim
+            expected_out_dim = self.output_dim
+
+            def _shape_ok(shape, expected_dim, kind):
+                if len(shape) != 2:
+                    return False, f"ONNX model must have {kind} shape with 2 dimensions (batch, features)"
+                # First dim: 1 (fixed batch) or dynamic (string/None)
+                batch_dim = shape[0]
+                if batch_dim != 1 and batch_dim is not None and not isinstance(batch_dim, str):
+                    return False, f"ONNX model {kind} batch dimension must be 1 or dynamic"
+                if shape[1] != expected_dim:
+                    return False, f"ONNX model {kind} feature dimension must be {expected_dim}, got {shape[1]}"
+                return True, None
+
+            ok, msg = _shape_ok(input_shape, expected_in_dim, "input")
+            if not ok:
+                errors.append(msg)
+            ok, msg = _shape_ok(output_shape, expected_out_dim, "output")
+            if not ok:
+                errors.append(msg)
+
         except Exception as e:
             errors.append(f"ONNX model validation failed: {e}")
         
