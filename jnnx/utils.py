@@ -68,31 +68,40 @@ def create_jnnx_package(output_path: str, model_name: str,
     import shutil
     shutil.copy2(onnx_path, output_path / 'model.onnx')
     
-    # Save scalers
+    # Save scalers as pkl
     with open(output_path / 'scalers.pkl', 'wb') as f:
         pickle.dump(scalers, f)
     
-    # Create scalers.txt
-    scalers_txt = output_path / 'scalers.txt'
-    with open(scalers_txt, 'w') as f:
-        if 'x_min' in scalers:
-            # Simple dictionary format
-            for key in ['x_min', 'x_max', 'y_min', 'y_max']:
-                for val in scalers[key]:
-                    f.write(f"{val}\n")
+    # Save portable scalers.json
+    if 'x_min' in scalers:
+        scaler_data = scalers
+    else:
+        x_scaler = scalers.get('x_scaler')
+        y_scaler = scalers.get('y_scaler')
+        if x_scaler and y_scaler:
+            scaler_data = {
+                'x_min': x_scaler.data_min_.tolist(),
+                'x_max': x_scaler.data_max_.tolist(),
+                'y_min': y_scaler.data_min_.tolist(),
+                'y_max': y_scaler.data_max_.tolist(),
+            }
         else:
-            # sklearn scaler format
-            x_scaler = scalers.get('x_scaler')
-            y_scaler = scalers.get('y_scaler')
-            if x_scaler and y_scaler:
-                for val in x_scaler.data_min_:
-                    f.write(f"{val}\n")
-                for val in x_scaler.data_max_:
-                    f.write(f"{val}\n")
-                for val in y_scaler.data_min_:
-                    f.write(f"{val}\n")
-                for val in y_scaler.data_max_:
-                    f.write(f"{val}\n")
+            scaler_data = scalers
+    scalers_json = {
+        'version': '1.0',
+        'input_scaler': {
+            'type': 'MinMaxScaler',
+            'data_min': scaler_data.get('x_min', []),
+            'data_max': scaler_data.get('x_max', []),
+        },
+        'output_scaler': {
+            'type': 'MinMaxScaler',
+            'data_min': scaler_data.get('y_min', []),
+            'data_max': scaler_data.get('y_max', []),
+        },
+    }
+    with open(output_path / 'scalers.json', 'w') as f:
+        json.dump(scalers_json, f, indent=2)
 
 
 def test_onnx_model(onnx_path: str, test_inputs: List[np.ndarray]) -> Dict[str, Any]:

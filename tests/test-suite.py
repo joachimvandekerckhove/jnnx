@@ -169,10 +169,6 @@ class TestPhase2(unittest.TestCase):
         with open(self.jnnx_dir / "scalers.pkl", 'wb') as f:
             pickle.dump(scalers, f)
         
-        # Create scalers.txt
-        scalers_txt = "0.0\n1.0\n0.0\n1.0\n"
-        (self.jnnx_dir / "scalers.txt").write_text(scalers_txt)
-        
         # Create README.md
         (self.jnnx_dir / "README.md").write_text("# Test Model\nTest model description.")
     
@@ -720,10 +716,6 @@ class TestIntegration(unittest.TestCase):
         
         with open(self.jnnx_dir / "scalers.pkl", 'wb') as f:
             pickle.dump(scalers, f)
-        
-        # Create scalers.txt
-        scalers_txt = "0.0\n-1.0\n1.0\n1.0\n0.0\n0.0\n1.0\n1.0\n"
-        (self.jnnx_dir / "scalers.txt").write_text(scalers_txt)
         
         # Create README.md
         (self.jnnx_dir / "README.md").write_text("# Integration Test Model\nTest model for integration testing.")

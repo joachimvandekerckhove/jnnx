@@ -50,11 +50,13 @@ def find_files(jnnx_dir):
         print(f"Error: model.onnx not found in {jnnx_dir}")
         sys.exit(1)
     
-    # Find scalers.pkl file
+    # Find scalers file (pkl or json)
     scalers_file = jnnx_path / "scalers.pkl"
     if not scalers_file.exists():
-        print(f"Error: scalers.pkl not found in {jnnx_dir}")
-        sys.exit(1)
+        scalers_file = jnnx_path / "scalers.json"
+        if not scalers_file.exists():
+            print(f"Error: Neither scalers.pkl nor scalers.json found in {jnnx_dir}")
+            sys.exit(1)
     
     return metadata_file, onnx_file, scalers_file
 
@@ -70,12 +72,24 @@ def load_metadata(metadata_file):
 
 
 def load_scalers(scalers_file):
-    """Load scalers from pickle file."""
+    """Load scalers from pickle or JSON file."""
     try:
+        scalers_file = Path(scalers_file)
+        if scalers_file.suffix == '.json':
+            with open(scalers_file, 'r') as f:
+                data = json.load(f)
+            input_scaler = data.get('input_scaler', {})
+            output_scaler = data.get('output_scaler', {})
+            return {
+                'x_min': input_scaler.get('data_min', []),
+                'x_max': input_scaler.get('data_max', []),
+                'y_min': output_scaler.get('data_min', []),
+                'y_max': output_scaler.get('data_max', []),
+            }
+
         with open(scalers_file, 'rb') as f:
             scalers_data = pickle.load(f)
         
-        # Handle sklearn MinMaxScaler format
         if isinstance(scalers_data, dict) and 'x_scaler' in scalers_data and 'y_scaler' in scalers_data:
             x_scaler = scalers_data['x_scaler']
             y_scaler = scalers_data['y_scaler']
@@ -85,7 +99,6 @@ def load_scalers(scalers_file):
                 'y_min': y_scaler.data_min_.tolist(),
                 'y_max': y_scaler.data_max_.tolist()
             }
-        # Handle simple dictionary format
         elif isinstance(scalers_data, dict) and 'x_min' in scalers_data:
             return scalers_data
         else:
@@ -101,19 +114,16 @@ def test_package_integrity(jnnx_dir):
     print("Test 1: Package integrity...")
     
     jnnx_path = Path(jnnx_dir)
-    required_files = [
-        "metadata.json",
-        "model.onnx", 
-        "scalers.pkl",
-        "scalers.txt",
-        "README.md"
-    ]
+    required_files = ["metadata.json", "model.onnx", "README.md"]
     
     missing_files = []
     for file_name in required_files:
         file_path = jnnx_path / file_name
         if not file_path.exists():
             missing_files.append(file_name)
+    
+    if not (jnnx_path / "scalers.pkl").exists() and not (jnnx_path / "scalers.json").exists():
+        missing_files.append("scalers.pkl or scalers.json")
     
     if missing_files:
         print(f"  ✗ Missing files: {missing_files}")

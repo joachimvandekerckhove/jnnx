@@ -11,9 +11,8 @@ The DDM model predicts response accuracy, mean response time, and response time 
 
 ## Files
 
-- `model.onnx`: Trained neural network model
+- `model.onnx`: Trained neural network model (raw I/O; scaling baked into the graph)
 - `scalers.pkl`: Scaling parameters (Python pickle format)
-- `scalers.txt`: Human-readable scaling parameters
 - `metadata.json`: Model specifications and metadata
 
 ## Installation Requirements
