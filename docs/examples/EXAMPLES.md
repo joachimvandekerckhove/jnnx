@@ -1,5 +1,15 @@
 # JNNX Examples and Tutorials
 
+## End-to-end demo (train → export → package → JAGS)
+
+The script `demos/end-to-end-ddm.py` runs the full pipeline: train a small PyTorch DDM emulator with raw I/O, export to ONNX, create a `.jnnx` package, validate, and generate the JAGS module. Optional steps: compile (if `ONNXRUNTIME_DIR` is set) and use in JAGS.
+
+```bash
+python demos/end-to-end-ddm.py
+```
+
+Requirements: `torch`, `onnx`, `numpy`, `jnnx`. Optional: `ONNXRUNTIME_DIR` for compilation; `py2jags` and JAGS for the JAGS step.
+
 ## Quick Start Tutorial
 
 This tutorial walks through creating and using a JNNX package with a simple neural network model.
