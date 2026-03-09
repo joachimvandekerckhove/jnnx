@@ -17,9 +17,14 @@ LDFLAGS = -shared
 JAGS_INCLUDE = $(shell pkg-config --cflags jags)
 JAGS_LIBS = $(shell pkg-config --libs jags)
 
-# ONNX Runtime (from tmp directory per constitution.md)
-ONNX_INCLUDE = -I../../tmp/onnxruntime-linux-x64-1.23.2/include
-ONNX_LIBS = -L../../tmp/onnxruntime-linux-x64-1.23.2/lib -lonnxruntime
+# ONNX Runtime: set ONNXRUNTIME_DIR when running make (e.g. export ONNXRUNTIME_DIR=/path/to/onnxruntime-linux-x64-1.23.2)
+# or: make ONNXRUNTIME_DIR=/path/to/onnxruntime-linux-x64-1.23.2
+ONNXRUNTIME_DIR ?= {{ONNXRUNTIME_DIR_DEFAULT}}
+ifeq ($(ONNXRUNTIME_DIR),)
+$(error ONNXRUNTIME_DIR is not set. Set it to the ONNX Runtime install directory, e.g. export ONNXRUNTIME_DIR=/path/to/onnxruntime-linux-x64-1.23.2)
+endif
+ONNX_INCLUDE = -I$(ONNXRUNTIME_DIR)/include
+ONNX_LIBS = -L$(ONNXRUNTIME_DIR)/lib -lonnxruntime
 
 # PyTorch (optional for now)
 # TORCH_INCLUDE = $(shell python3 -c "import torch; print('-I' + torch.__path__[0] + '/include/torch/csrc/api/include')")
