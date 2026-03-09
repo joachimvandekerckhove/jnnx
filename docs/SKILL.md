@@ -52,7 +52,9 @@ Apply when user asks any of the following:
 A valid `.jnnx` package minimally includes:
 - `model.onnx` (or ONNX with external data sidecar if needed)
 - `metadata.json`
-- `scalers.pkl`
+- `scalers.pkl` or `scalers.json`
+
+**ONNX I/O contract:** The ONNX model must accept raw (original-domain) inputs and return raw (original-domain) outputs; all scaling must be inside the ONNX graph. See API.md "Scaling contract".
 
 Critical metadata fields used by generation:
 - `model_name`

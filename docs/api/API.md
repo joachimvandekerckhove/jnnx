@@ -1,5 +1,9 @@
 # JNNX API Documentation
 
+## Scaling contract (ONNX I/O)
+
+The ONNX model in a `.jnnx` package **must** accept **raw (original-domain) inputs** and return **raw (original-domain) outputs**. All scaling (e.g. MinMax, standardization) must be baked into the ONNX graph. The C++ JAGS module passes parameter values and receives outputs without applying any scaling. If you train with `StandardScaler`/`MinMaxScaler` and export with scaled I/O, JAGS will pass raw values (e.g. `drift=2.0`) to a model expecting [0,1] and get wrong results. Export so the ONNX model’s external interface uses the same units as your metadata `input_parameters` / `output_parameters` (min/max).
+
 ## Core Classes
 
 ### JNNXPackage

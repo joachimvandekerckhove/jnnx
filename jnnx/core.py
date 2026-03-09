@@ -111,7 +111,6 @@ class JNNXPackage:
             def _shape_ok(shape, expected_dim, kind):
                 if len(shape) != 2:
                     return False, f"ONNX model must have {kind} shape with 2 dimensions (batch, features)"
-                # First dim: 1 (fixed batch) or dynamic (string/None)
                 batch_dim = shape[0]
                 if batch_dim != 1 and batch_dim is not None and not isinstance(batch_dim, str):
                     return False, f"ONNX model {kind} batch dimension must be 1 or dynamic"
@@ -125,6 +124,41 @@ class JNNXPackage:
             ok, msg = _shape_ok(output_shape, expected_out_dim, "output")
             if not ok:
                 errors.append(msg)
+
+            # Raw I/O check: sample inputs from metadata min/max; outputs should be within output min/max
+            if not errors:
+                input_params = self.get_input_parameters()
+                output_params = self.get_output_parameters()
+                tol = 1e-5
+                samples = []
+                mins = [p.get('min', 0) for p in input_params]
+                maxs = [p.get('max', 1) for p in input_params]
+                samples.append(mins)
+                samples.append(maxs)
+                samples.append([0.5 * (a + b) for a, b in zip(mins, maxs)])
+                for sample in samples:
+                    inp = np.array([sample], dtype=np.float32)
+                    out = session.run(None, {session.get_inputs()[0].name: inp})[0]
+                    if out.shape[0] >= 1:
+                        row = out[0]
+                        for j, param in enumerate(output_params):
+                            if j < len(row):
+                                lo = param.get('min', float('-inf'))
+                                hi = param.get('max', float('inf'))
+                                if np.isfinite(lo) and row[j] < lo - tol:
+                                    errors.append(
+                                        f"ONNX output [{j}] = {row[j]} below output_parameters min {lo} "
+                                        "(model may expect scaled I/O; use raw I/O per scaling contract)"
+                                    )
+                                    break
+                                if np.isfinite(hi) and row[j] > hi + tol:
+                                    errors.append(
+                                        f"ONNX output [{j}] = {row[j]} above output_parameters max {hi} "
+                                        "(model may expect scaled I/O; use raw I/O per scaling contract)"
+                                    )
+                                    break
+                    if errors:
+                        break
 
         except Exception as e:
             errors.append(f"ONNX model validation failed: {e}")

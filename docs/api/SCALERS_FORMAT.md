@@ -4,6 +4,8 @@
 
 This document describes a portable way to store neural network scalers in `.jnnx` directories, avoiding PyTorch's complex serialization issues and dependency problems.
 
+**Note:** The ONNX model in a `.jnnx` package must use **raw (original-domain) inputs and outputs**; scaling should be baked into the ONNX graph. Scaler data (e.g. in `scalers.json`) describes the training domain for documentation and tooling; the C++ JAGS module does not apply scaling at runtime.
+
 ## Problem Statement
 
 The original design stored scalers in `.pth` files, but this approach has several issues:
