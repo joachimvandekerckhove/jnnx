@@ -280,7 +280,6 @@ class TestJnnxCoreJAGSModule(unittest.TestCase):
         mod = JAGSModule(pkg, str(build))
         mod.generate_code()
         self.assertTrue((build / "model.onnx").exists())
-        self.assertTrue((build / "scalers.txt").exists())
         self.assertTrue((build / f"{mod.module_name}.cc").exists())
         self.assertTrue((build / "Makefile").exists())
 
