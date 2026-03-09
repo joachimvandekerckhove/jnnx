@@ -29,13 +29,26 @@ class JNNXPackage:
             return json.load(f)
     
     def _load_scalers(self) -> Dict[str, Any]:
-        """Load scalers from package."""
-        scalers_file = self.package_path / "scalers.pkl"
-        if not scalers_file.exists():
-            raise FileNotFoundError(f"scalers.pkl not found in {self.package_path}")
-        
-        with open(scalers_file, 'rb') as f:
-            return pickle.load(f)
+        """Load scalers from package. Tries scalers.pkl first, then scalers.json."""
+        pkl_file = self.package_path / "scalers.pkl"
+        json_file = self.package_path / "scalers.json"
+        if pkl_file.exists():
+            with open(pkl_file, 'rb') as f:
+                return pickle.load(f)
+        if json_file.exists():
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            input_scaler = data.get('input_scaler', {})
+            output_scaler = data.get('output_scaler', {})
+            return {
+                'x_min': input_scaler.get('data_min', []),
+                'x_max': input_scaler.get('data_max', []),
+                'y_min': output_scaler.get('data_min', []),
+                'y_max': output_scaler.get('data_max', []),
+            }
+        raise FileNotFoundError(
+            f"Neither scalers.pkl nor scalers.json found in {self.package_path}"
+        )
     
     @property
     def model_name(self) -> str:
@@ -63,11 +76,12 @@ class JNNXPackage:
         """Validate package integrity."""
         errors = []
         
-        # Check required files
-        required_files = ['metadata.json', 'model.onnx', 'scalers.pkl']
-        for file in required_files:
+        # Check required files (scalers: either .pkl or .json)
+        for file in ['metadata.json', 'model.onnx']:
             if not (self.package_path / file).exists():
                 errors.append(f"Missing required file: {file}")
+        if not (self.package_path / "scalers.pkl").exists() and not (self.package_path / "scalers.json").exists():
+            errors.append("Missing required file: scalers.pkl or scalers.json")
         
         # Required metadata fields
         for field in [
