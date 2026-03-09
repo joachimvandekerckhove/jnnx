@@ -1,4 +1,4 @@
-# JNNX - JAGS Neural Network eXtension
+# JNNX - JAGS Neural Network eXchange
 
 JNNX enables evaluation of trained neural networks (ONNX models) as deterministic nodes within JAGS Bayesian models.
 
