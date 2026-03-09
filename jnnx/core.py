@@ -205,10 +205,6 @@ class JAGSModule:
             shutil.copy2(onnx_data_source, onnx_data_dest)
             print(f"Copied external data file to {onnx_data_dest}")
         
-        # Generate scalers.txt
-        scalers_txt = self.build_dir / "scalers.txt"
-        self._generate_scalers_txt(scalers_txt)
-        
         # Generate C++ source file
         cpp_file = self.build_dir / f"{self.module_name}.cc"
         self._generate_cpp_code(cpp_file)
@@ -216,30 +212,6 @@ class JAGSModule:
         # Generate Makefile
         makefile = self.build_dir / "Makefile"
         self._generate_makefile(makefile)
-    
-    def _generate_scalers_txt(self, output_file: Path) -> None:
-        """Generate scalers.txt file for C++ module."""
-        scalers = self.package.scalers
-        
-        with open(output_file, 'w') as f:
-            if 'x_min' in scalers:
-                # Simple dictionary format
-                for key in ['x_min', 'x_max', 'y_min', 'y_max']:
-                    for val in scalers[key]:
-                        f.write(f"{val}\n")
-            else:
-                # sklearn scaler format
-                x_scaler = scalers.get('x_scaler')
-                y_scaler = scalers.get('y_scaler')
-                if x_scaler and y_scaler:
-                    for val in x_scaler.data_min_:
-                        f.write(f"{val}\n")
-                    for val in x_scaler.data_max_:
-                        f.write(f"{val}\n")
-                    for val in y_scaler.data_min_:
-                        f.write(f"{val}\n")
-                    for val in y_scaler.data_max_:
-                        f.write(f"{val}\n")
     
     def _generate_cpp_code(self, output_file: Path) -> None:
         """Generate C++ module source code."""
@@ -265,7 +237,6 @@ class JAGSModule:
             '{{INPUT_DIM}}': str(len(input_params)),
             '{{OUTPUT_DIM}}': str(len(output_params)),
             '{{ONNX_PATH}}': str((self.build_dir / "model.onnx").absolute()),  # Use absolute path
-            '{{SCALING_PATH}}': str(self.build_dir / "scalers.txt"),
         }
         
         # Add input/output limits

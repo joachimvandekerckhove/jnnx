@@ -7,7 +7,6 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include <fstream>
 #include <stdexcept>
 #include <cmath> // For std::isfinite
 
@@ -15,33 +14,16 @@ namespace jags {
 namespace {{MODULE_NAME}} {
 
 // Neural network function class
+// ONNX model must accept raw (original-domain) inputs and return raw outputs;
+// any scaling is baked into the ONNX graph.
 class {{FUNCTION_CLASS}} : public VectorFunction
 {
 private:
     Ort::Env env;
     Ort::Session* session;
-    std::vector<float> x_min;
-    std::vector<float> x_max;
-    std::vector<float> y_min;
-    std::vector<float> y_max;
-    bool scalers_loaded;
-    
-    bool load_scaling_parameters() {
-        try {
-            // Note: ONNX model already handles scaling internally
-            // We don't need to apply scaling in the JAGS module
-            scalers_loaded = true;
-            return true;
-            
-        } catch (const std::exception& e) {
-            std::cerr << "Error loading scaling parameters: " << e.what() << std::endl;
-            scalers_loaded = false;
-            return false;
-        }
-    }
-    
+
 public:
-    {{FUNCTION_CLASS}}() : VectorFunction("{{FUNCTION_NAME}}", {{INPUT_DIM}}), scalers_loaded(false)
+    {{FUNCTION_CLASS}}() : VectorFunction("{{FUNCTION_NAME}}", {{INPUT_DIM}})
     {
         try {
             // Initialize ONNX Runtime
@@ -50,9 +32,6 @@ public:
             // Load ONNX model
             std::string model_path = "{{ONNX_PATH}}";
             session = new Ort::Session(env, model_path.c_str(), Ort::SessionOptions{nullptr});
-            
-            // Load scaling parameters
-            load_scaling_parameters();
             
             std::cout << "{{BANNER_STRING}}" << std::endl;
             
@@ -100,11 +79,7 @@ public:
                   std::vector<unsigned int> const &lengths) const
     {
         try {
-            if (!scalers_loaded) {
-                throw std::runtime_error("Scaling parameters not loaded");
-            }
-            
-            // Prepare input data (no scaling needed - ONNX model handles it internally)
+            // Prepare input data (raw values; ONNX model handles scaling internally)
             std::vector<float> input_data({{INPUT_DIM}});
             for (unsigned int i = 0; i < {{INPUT_DIM}}; ++i) {
                 input_data[i] = static_cast<float>(*args[i]);
