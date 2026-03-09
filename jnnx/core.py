@@ -200,11 +200,15 @@ class JNNXPackage:
                 raise ValueError("Invalid scaler format")
     
     def test_onnx_model(self, test_inputs: Optional[List[np.ndarray]] = None) -> Dict[str, Any]:
-        """Test the ONNX model with sample inputs."""
+        """Test the ONNX model with sample inputs.
+
+        Default test inputs are drawn from metadata input_parameters min/max (raw
+        domain). The model is assumed to use raw I/O per the scaling contract.
+        """
         session = ort.InferenceSession(self.get_onnx_path())
         
         if test_inputs is None:
-            # Generate default test inputs
+            # Generate default test inputs (raw domain)
             input_params = self.get_input_parameters()
             test_inputs = []
             for _ in range(3):  # 3 test cases
