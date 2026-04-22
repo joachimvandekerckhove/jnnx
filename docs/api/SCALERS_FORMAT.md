@@ -1,165 +1,93 @@
-# Portable Scaler Storage Format for JNNX
+# Portable scaler storage for JNNX
 
-## Overview
+## Scaling contract (read this first)
 
-This document describes a portable way to store neural network scalers in `.jnnx` directories, avoiding PyTorch's complex serialization issues and dependency problems.
+The ONNX model in a `.jnnx` package **must** accept **raw (original-domain) inputs** and return **raw (original-domain) outputs**. All scaling (MinMax, standardization, etc.) must be **inside the ONNX graph**. The generated C++ JAGS module passes JAGS parameter values straight through to ONNX and writes ONNX outputs straight back to JAGS — **it does not read `scalers.pkl`, `scalers.json`, or any scaler file at runtime.**
 
-**Note:** The ONNX model in a `.jnnx` package must use **raw (original-domain) inputs and outputs**; scaling should be baked into the ONNX graph. Scaler data (e.g. in `scalers.json`) describes the training domain for documentation and tooling; the C++ JAGS module does not apply scaling at runtime.
+If you export a model that expects scaled `[0, 1]` inputs while your metadata describes physical ranges (e.g. drift −3…3), JAGS will still pass raw values and you will get **silent wrong answers**. See `docs/api/API.md` for the full contract and validation behavior.
 
-## Problem Statement
+## What scaler files are for
 
-The original design stored scalers in `.pth` files, but this approach has several issues:
+`scalers.pkl` and `scalers.json` are **Python-side metadata**:
 
-1. **Dependency Issues**: `.pth` files may contain references to custom modules (e.g., `training.neural_network.get_loss_fn`)
-2. **Version Compatibility**: PyTorch serialization format changes between versions
-3. **Security Concerns**: Loading `.pth` files can execute arbitrary code
-4. **Complexity**: Requires full PyTorch installation and complex error handling
+- Document the training data domain (min/max per feature) for humans and tools.
+- Used by `jnnx` when loading a package (`JNNXPackage.scalers`, `get_scaler_parameters()`), `extract-scalers` / `update-scalers`, and validation heuristics.
+- **Not** consumed by the compiled JAGS module.
 
-## Solution: Portable JSON Format
+You can ship either format (or both); `JNNXPackage` tries `scalers.pkl` first, then `scalers.json`.
 
-### File Structure
+## Why JSON (optional but recommended for portability)
 
-Each `.jnnx` directory should contain a `scalers.json` file alongside the existing files:
+Pickled sklearn objects can pull in PyTorch/custom code paths and version skew. A portable JSON snapshot avoids that for sharing and CI.
+
+## `scalers.json` schema
+
+Each `.jnnx` directory may contain `scalers.json` alongside `metadata.json` and `model.onnx`:
 
 ```
 models/example.jnnx/
-├── example_emulator.json    # Configuration
-├── example_emulator.onnx    # Neural network model
-├── example_emulator.pth     # PyTorch checkpoint (optional)
-└── scalers.json            # Portable scaler data
+├── metadata.json
+├── model.onnx
+└── scalers.json
 ```
 
-### JSON Schema
+Example:
 
 ```json
 {
   "version": "1.0",
   "input_scaler": {
     "type": "MinMaxScaler",
-    "data_min": [0.5, -5.0, 0.0, 0.0],
-    "data_max": [5.0, 5.0, 1.0, 1.0],
+    "data_min": [0.5, -5.0, 0.0],
+    "data_max": [5.0, 5.0, 1.0],
     "feature_range": [0.0, 1.0]
   },
   "output_scaler": {
     "type": "MinMaxScaler",
-    "data_min": [0.0, 0.0, 0.0, 0.0, 0.0],
-    "data_max": [1.0, 1.0, 1.0, 1.0, 1.0],
+    "data_min": [0.0, 0.0, 0.0],
+    "data_max": [1.0, 10.0, 100.0],
     "feature_range": [0.0, 1.0]
   },
   "metadata": {
     "created_by": "jnnx-tools",
     "created_at": "2025-01-27T14:30:00Z",
-    "source_file": "example_emulator.pth",
-    "description": "Scalers for example neural network"
+    "description": "Training-domain scaler snapshot"
   }
 }
 ```
 
-### Field Descriptions
+### Field notes
 
-#### Root Level
-- `version`: Format version (currently "1.0")
-- `input_scaler`: Input scaling parameters
-- `output_scaler`: Output scaling parameters  
-- `metadata`: Additional information
+- **`input_scaler` / `output_scaler`**: `data_min` and `data_max` arrays align with `input_parameters` / `output_parameters` order in `metadata.json`.
+- **`type`**: Documentary; loaders treat MinMax-style `data_min` / `data_max` as the authoritative arrays.
+- **`metadata`**: Optional provenance.
 
-#### Scaler Objects
-- `type`: Scaler type (currently only "MinMaxScaler" supported)
-- `data_min`: Array of minimum values for each dimension
-- `data_max`: Array of maximum values for each dimension
-- `feature_range`: Target range for scaling (typically [0.0, 1.0])
+When loading JSON, `jnnx.core.JNNXPackage._load_scalers()` maps this into the internal dict shape: `x_min`, `x_max`, `y_min`, `y_max` lists.
 
-#### Metadata
-- `created_by`: Tool that created the file
-- `created_at`: ISO timestamp of creation
-- `source_file`: Original .pth file (if applicable)
-- `description`: Human-readable description
+## `scalers.pkl` format
 
-## Usage Examples
+Supported shapes:
 
-### Creating Scalers
+1. **Flat dict:** `{"x_min": [...], "x_max": [...], "y_min": [...], "y_max": [...]}`
+2. **Sklearn-style dict:** `{"x_scaler": MinMaxScaler(...), "y_scaler": MinMaxScaler(...)}` — `get_scaler_parameters()` reads `data_min_` / `data_max_`.
 
-```python
-# Using the extract-scalers.py utility
-python3 extract-scalers.py models/example.jnnx/example_emulator.pth
+## Creating scalers
 
-# Or programmatically
-from extract_scalers import extract_scalers_to_json
-extract_scalers_to_json("models/example.jnnx/example_emulator.pth")
+Use the project scripts (from repo root):
+
+```bash
+python scripts/extract-scalers.py path/to/checkpoint.pth
+python scripts/update-scalers.py models/example.jnnx
 ```
 
-### Loading Scalers
+Or build `scalers.json` by hand following the schema above.
 
-```python
-# Using the utility function
-from extract_scalers import load_scalers_from_json
-scalers = load_scalers_from_json("models/example.jnnx/scalers.json")
+## Current implementation status
 
-# Direct JSON loading
-import json
-with open("models/example.jnnx/scalers.json", 'r') as f:
-    scaler_data = json.load(f)
+| Area | Behavior |
+|------|----------|
+| Load package | `scalers.pkl` preferred, else `scalers.json` |
+| C++ JAGS module | No scaler I/O; raw ONNX I/O only |
+| Validation | ONNX run with metadata min/max samples to catch obvious raw/scaled mismatches (see `JNNXPackage.validate()`) |
 
-input_scaler = scaler_data['input_scaler']
-x_min = input_scaler['data_min']
-x_max = input_scaler['data_max']
-```
-
-### C++ Integration
-
-The C++ module can read scalers from the JSON file:
-
-```cpp
-// Parse JSON file
-std::ifstream file("scalers.json");
-json scaler_data;
-file >> scaler_data;
-
-// Extract scaling parameters
-auto input_scaler = scaler_data["input_scaler"];
-std::vector<double> x_min = input_scaler["data_min"];
-std::vector<double> x_max = input_scaler["data_max"];
-```
-
-## Migration Strategy
-
-### Phase 1: Dual Support
-- Update `generate-module` to create both `.txt` and `.json` scaler files
-- Update validation scripts to check both formats
-- Maintain backward compatibility
-
-### Phase 2: JSON Primary
-- Make `scalers.json` the primary format
-- Update C++ template to read from JSON
-- Deprecate `.txt` format
-
-### Phase 3: JSON Only
-- Remove `.txt` scaler support
-- Simplify codebase
-- Full JSON-based workflow
-
-## Benefits
-
-1. **Portability**: No PyTorch dependencies for scaler loading
-2. **Human Readable**: Easy to inspect and debug
-3. **Version Agnostic**: No dependency on PyTorch versions
-4. **Secure**: No arbitrary code execution
-5. **Extensible**: Easy to add new scaler types
-6. **Cross-Platform**: Works on any system with JSON support
-
-## Implementation Status
-
-- ✅ `extract-scalers.py` utility created
-- ✅ JSON schema defined
-- ✅ DDM4 example scalers.json created
-- ⚠️ C++ template needs JSON parsing library
-- ⚠️ Validation scripts need JSON support
-- ⚠️ Migration strategy needs implementation
-
-## Next Steps
-
-1. Add JSON parsing library to C++ template (nlohmann/json)
-2. Update validation scripts to use JSON format
-3. Test end-to-end workflow with JSON scalers
-4. Implement migration strategy
-5. Update documentation and examples
+There is **no** planned C++ JSON scaler reader for the default template; scaling belongs in ONNX.

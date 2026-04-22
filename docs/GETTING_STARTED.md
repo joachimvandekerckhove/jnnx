@@ -3,6 +3,7 @@
 This guide walks you through creating your first JNNX-backed JAGS module from an ONNX model.
 
 If you want broader context first, see:
+- `docs/guides/END_TO_END_TUTORIAL.md` (train → ONNX → package → JAGS, plus `demos/end-to-end-ddm.py`)
 - `docs/guides/INSTALLATION.md`
 - `docs/examples/EXAMPLES.md`
 - `docs/api/API.md`
@@ -23,7 +24,7 @@ You will:
 - ONNX Runtime 1.23.2+
 - `py2jags` available in your Python environment
 - A trained ONNX model file (for example: `model.onnx`)
-- Scaler metadata in `scalers.pkl` (MinMax-style dictionary)
+- Scaler metadata: `scalers.pkl` **or** `scalers.json` (required for a valid package; used by Python tooling — the C++ module does not read these at runtime; see `docs/api/SCALERS_FORMAT.md`)
 
 Install JNNX:
 
@@ -38,7 +39,7 @@ From the repository root:
 ```bash
 mkdir -p my_model.jnnx
 cp model.onnx my_model.jnnx/
-cp scalers.pkl my_model.jnnx/
+cp scalers.pkl my_model.jnnx/   # or: cp scalers.json my_model.jnnx/
 ```
 
 ## Step 2: Add `metadata.json`

@@ -1,5 +1,6 @@
 {
   "model_name": "ddm",
+  "description": "Bundled DDM emulator package. The 'transformations' block documents how the network was trained (e.g. minmax on inputs/outputs during training). The ONNX graph applies the effective mapping so JAGS still passes raw-domain parameters and receives raw-domain outputs per the JNNX scaling contract.",
   "module_name": "ddm_emulator",
   "function_name": "ddm_emulator",
   "version": "1.0.0",

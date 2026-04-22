@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jnnx"
-version = "1.0.0"
+version = "1.0.1"
 description = "JAGS Neural Network eXtension - Evaluate ONNX models as deterministic nodes in JAGS"
 readme = "README.md"
 license = {text = "MIT"}

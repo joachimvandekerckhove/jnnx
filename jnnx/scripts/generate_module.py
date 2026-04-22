@@ -6,41 +6,43 @@ Usage: ./generate-module models/sdt.jnnx/
 """
 
 import json
+import os
 import sys
-import pickle
 from pathlib import Path
 
 
 def find_files(jnnx_dir):
-    """Find required files in .jnnx directory."""
+    """Find required files in .jnnx directory.
+
+    Scalers (pkl or json) must be present for a valid package; they are not
+    consumed by C++ generation (scaling is baked into ONNX per contract).
+    """
     jnnx_path = Path(jnnx_dir)
     if not jnnx_path.exists():
         print(f"Error: Directory {jnnx_dir} does not exist")
         sys.exit(1)
-    
+
     if not jnnx_path.name.endswith('.jnnx'):
         print(f"Error: Directory {jnnx_dir} does not end with .jnnx")
         sys.exit(1)
-    
-    # Find metadata.json file
+
     metadata_file = jnnx_path / "metadata.json"
     if not metadata_file.exists():
         print(f"Error: metadata.json not found in {jnnx_dir}")
         sys.exit(1)
-    
-    # Find model.onnx file
+
     onnx_file = jnnx_path / "model.onnx"
     if not onnx_file.exists():
         print(f"Error: model.onnx not found in {jnnx_dir}")
         sys.exit(1)
-    
-    # Find scalers.pkl file
-    scalers_file = jnnx_path / "scalers.pkl"
-    if not scalers_file.exists():
-        print(f"Error: scalers.pkl not found in {jnnx_dir}")
+
+    pkl = jnnx_path / "scalers.pkl"
+    js = jnnx_path / "scalers.json"
+    if not pkl.exists() and not js.exists():
+        print(f"Error: neither scalers.pkl nor scalers.json found in {jnnx_dir}")
         sys.exit(1)
-    
-    return metadata_file, onnx_file, scalers_file
+
+    return metadata_file, onnx_file
 
 
 def load_metadata(metadata_file):
@@ -50,33 +52,6 @@ def load_metadata(metadata_file):
             return json.load(f)
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON in {metadata_file}: {e}")
-        sys.exit(1)
-
-
-def load_scalers(scalers_file):
-    """Load scalers from pickle file."""
-    try:
-        with open(scalers_file, 'rb') as f:
-            scalers_data = pickle.load(f)
-        
-        # Handle sklearn MinMaxScaler format
-        if isinstance(scalers_data, dict) and 'x_scaler' in scalers_data and 'y_scaler' in scalers_data:
-            x_scaler = scalers_data['x_scaler']
-            y_scaler = scalers_data['y_scaler']
-            return {
-                'x_min': x_scaler.data_min_.tolist(),
-                'x_max': x_scaler.data_max_.tolist(),
-                'y_min': y_scaler.data_min_.tolist(),
-                'y_max': y_scaler.data_max_.tolist()
-            }
-        # Handle simple dictionary format
-        elif isinstance(scalers_data, dict) and 'x_min' in scalers_data:
-            return scalers_data
-        else:
-            raise ValueError("Unknown scaler format")
-            
-    except Exception as e:
-        print(f"Error: Could not load scalers from {scalers_file}: {e}")
         sys.exit(1)
 
 
@@ -139,16 +114,15 @@ def _templates_dir():
     return Path(__file__).resolve().parent.parent / "templates"
 
 
-def generate_module_code(metadata, scalers, onnx_file, output_dir):
+def generate_module_code(metadata, onnx_file, output_dir):
     """Generate C++ module code from templates."""
     template_file = _templates_dir() / "module.cc.template"
     if not template_file.exists():
         print(f"Error: Template file not found: {template_file}")
         sys.exit(1)
-    
+
     template_content = template_file.read_text()
-    
-    # Extract information from metadata
+
     # Require explicit names from metadata
     module_name = metadata.get('module_name')
     function_name = metadata.get('function_name')
@@ -157,16 +131,10 @@ def generate_module_code(metadata, scalers, onnx_file, output_dir):
         sys.exit(1)
     function_class = f"{module_name.replace('_','').upper()}_Function"
     module_class = f"{module_name.replace('_','').upper()}_Module"
-    
+
     input_dim, output_dim = extract_dimensions_from_metadata(metadata)
     input_min, input_max, output_min, output_max = extract_limits_from_metadata(metadata)
-    
-    # Extract scaler data
-    x_min = scalers.get('x_min', [0.0] * input_dim)
-    x_max = scalers.get('x_max', [1.0] * input_dim)
-    y_min = scalers.get('y_min', [0.0] * output_dim)
-    y_max = scalers.get('y_max', [1.0] * output_dim)
-    
+
     # Create banner string
     model_name = metadata.get('model_name', module_name)
     banner = f"The {model_name} is being loaded. (c) 2025 Joachim Vandekerckhove"
@@ -191,10 +159,6 @@ def generate_module_code(metadata, scalers, onnx_file, output_dir):
         '{{OUTPUT_MIN}}': format_array(output_min),
         '{{OUTPUT_MAX}}': format_array(output_max),
         '{{BANNER_STRING}}': banner,
-        '{{X_MIN}}': format_array(x_min),
-        '{{X_MAX}}': format_array(x_max),
-        '{{Y_MIN}}': format_array(y_min),
-        '{{Y_MAX}}': format_array(y_max)
     }
     
     # Apply replacements
@@ -228,11 +192,12 @@ def generate_makefile(metadata, output_dir):
     
     # Default installation directory
     install_dir = "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/"
-    
-    # Replace placeholders
+
+    onnx_default = os.environ.get('ONNXRUNTIME_DIR', '')
     replacements = {
         '{{MODULE_NAME}}': module_name,
-        '{{INSTALL_DIR}}': install_dir
+        '{{INSTALL_DIR}}': install_dir,
+        '{{ONNXRUNTIME_DIR_DEFAULT}}': onnx_default,
     }
     
     # Apply replacements
@@ -278,19 +243,14 @@ def main():
     
     jnnx_dir = sys.argv[1]
     
-    # Find required files
-    metadata_file, onnx_file, scalers_file = find_files(jnnx_dir)
-    print(f"Found files:")
+    metadata_file, onnx_file = find_files(jnnx_dir)
+    print("Found files:")
     print(f"  Metadata: {metadata_file}")
     print(f"  ONNX: {onnx_file}")
-    print(f"  Scalers: {scalers_file}")
     print()
-    
-    # Load metadata and scalers
+
     metadata = load_metadata(metadata_file)
-    scalers = load_scalers(scalers_file)
     print(f"Metadata loaded: {metadata.get('model_name', 'unnamed')}")
-    print(f"Scalers loaded: {len(scalers)} parameters")
     print()
     
     # Ensure ONNX Runtime is available in tmp/
@@ -307,7 +267,7 @@ def main():
     
     # Generate module code
     print("Generating module code...")
-    module_file = generate_module_code(metadata, scalers, onnx_file, output_dir)
+    module_file = generate_module_code(metadata, onnx_file, output_dir)
     print()
     
     # Generate Makefile

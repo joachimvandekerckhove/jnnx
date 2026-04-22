@@ -18,7 +18,7 @@ def read_requirements():
 
 setup(
     name="jnnx",
-    version="1.0.0",
+    version="1.0.1",
     author="Joachim Vandekerckhove",
     author_email="joachim@uci.edu",
     description="JAGS Neural Network eXtension - Evaluate ONNX models as deterministic nodes in JAGS",

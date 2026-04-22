@@ -100,6 +100,7 @@ Both suites should pass before opening a pull request.
 
 - `docs/api/API.md`: Public API, scaling contract (raw I/O), and CLI reference
 - `docs/api/SCALERS_FORMAT.md`: Portable scaler format (`scalers.json` / `scalers.pkl`)
+- `docs/guides/END_TO_END_TUTORIAL.md`: Full pipeline from training to JAGS (with runnable demo link)
 - `docs/SKILL.md`: AI-agent operating playbook for JNNX tasks
 - `docs/examples/EXAMPLES.md`: End-to-end examples and tutorials
 - `docs/GETTING_STARTED.md`: First module walkthrough
@@ -108,6 +109,7 @@ Both suites should pass before opening a pull request.
 
 ## Examples
 
+- **`docs/guides/END_TO_END_TUTORIAL.md`**: Narrative for the full pipeline; points to the runnable demo below
 - **`demos/end-to-end-ddm.py`**: Full pipeline (train → export ONNX with raw I/O → create `.jnnx` package → validate → generate module). Optional compile and JAGS check. Run: `python demos/end-to-end-ddm.py`
 - **Notebooks**: `workflow-sdt.ipynb`, `workflow-ddm.ipynb` for Signal Detection Theory and Drift Diffusion Model
 

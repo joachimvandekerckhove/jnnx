@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-04-22
+
+### Fixed
+- `generate-module` CLI (`jnnx/scripts/generate_module.py`): substitute `{{ONNXRUNTIME_DIR_DEFAULT}}` in the generated Makefile (matches `JAGSModule` behavior); require either `scalers.pkl` or `scalers.json` instead of hard-requiring pickle only; drop unused scaler loading and dead `{{X_MIN}}` / `{{X_MAX}}` / `{{Y_MIN}}` / `{{Y_MAX}}` template replacements (those placeholders are not in the C++ template).
+
+### Changed
+- `docs/api/SCALERS_FORMAT.md`: rewritten for the raw I/O contract and Python-only scaler files; removed outdated migration / C++ JSON reader narrative.
+- `README.md` and `docs/GETTING_STARTED.md`: link the end-to-end tutorial; clarify scaler file options.
+
+### Added
+- `docs/guides/END_TO_END_TUTORIAL.md`: pipeline from training through JAGS, with pointer to `demos/end-to-end-ddm.py`.
+- `models/ddm.jnnx/metadata.json`: `description` field clarifying `transformations` vs ONNX runtime behavior.
+
 ## [1.0.0] - 2025-10-28
 
 ### Added
