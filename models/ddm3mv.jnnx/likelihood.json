@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "n_summaries": 3,
+  "sigma_emu": [
+    [3.061417492746862e-05, -9.816425293379514e-07, -9.412876825488747e-07],
+    [-9.81642529337955e-07, 3.259627858352172e-05, -9.566734245725397e-07],
+    [-9.41287682548875e-07, -9.5667342457254e-07, 3.320107375823874e-05]
+  ],
+  "notes": "Debiased mean-head residual covariance in standardized summary space. Training: R=120, n_rep=600. Source: results/ddm3mv/emulator_error_cov.json (2026-06-21)."
+}

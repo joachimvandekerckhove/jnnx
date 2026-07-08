@@ -71,6 +71,8 @@ include = ["jnnx*"]
 [tool.setuptools.package-data]
 jnnx = [
     "templates/*.template",
+    "cpp/*.h",
+    "cpp/*.cpp",
     "models/*.jnnx/*",
 ]
 
