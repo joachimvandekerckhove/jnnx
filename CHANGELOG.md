@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-08
+
+### Added
+- **Capabilities model**: optional `capabilities` array in `metadata.json` (`emulator` default; `synthetic_likelihood` for SL packages)
+- Synthetic likelihood: `{name}_sl` stochastic node, debug nodes (`_predict`, `_mean`, `_omega1`, `_omega_total`), mandatory `{name}_emulator` alias in a single `.so`
+- `likelihood.json` sidecar, C++ `sl_math` library, shared `OnnxEngine` in `sl_module.cc.template`
+- Integrated SL acceptance tests in `validate-module` (sections 8.1–8.6, 8.8)
+- `scripts/compute_sl_logdens_ref.py`, example `models/ddm3mv.jnnx`, fixture `fixtures/ddm3mv_sl_regression.json`
+- Demo: `demos/ddm3mv_sl_example.py`
+- Docs: [SYNTHETIC_LIKELIHOOD.md](docs/guides/SYNTHETIC_LIKELIHOOD.md), updated format spec and API
+
+### Changed
+- `generate-module` selects emulator or SL template based on `synthetic_likelihood` capability
+- `validate-module` rewritten: fixed py2jags harness (`monitorparams`, vector outputs), integrated SL suite
+- `JNNXPackage.validate()` dispatches per capability
+
 ## [1.0.1] - 2026-04-22
 
 ### Fixed

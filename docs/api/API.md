@@ -28,7 +28,11 @@ onnx_path = package.get_onnx_path()
 
 # Validate package
 is_valid, errors = package.validate()
+
+# Check declared capabilities (defaults to ["emulator"])
+print(package.capabilities)  # e.g. ["emulator", "synthetic_likelihood"]
 ```
+
 
 ### JAGSModule
 
@@ -155,13 +159,24 @@ generate-module models/sdt.jnnx
 
 ### validate-module
 
-Test compiled JAGS module.
+Test compiled JAGS module. Runs six emulator tests for all packages. When `synthetic_likelihood` is declared in `capabilities`, also runs SL acceptance tests (checksums, ONNX layout, predict/omega parity, log-density fixture, smoke sample).
 
 ```bash
 validate-module models/sdt.jnnx
+validate-module models/ddm3mv.jnnx --build-dir tmp/ddm3mv.jnnx_build
 ```
 
-## Integration with JAGS
+## Package capabilities
+
+Packages optionally declare capabilities in `metadata.json`:
+
+| Capability | Description |
+|------------|-------------|
+| `emulator` (default) | Deterministic `{function_name}` VectorFunction |
+| `synthetic_likelihood` | Stochastic `{name}_sl` plus debug/QA nodes in the same `.so` |
+
+See [SYNTHETIC_LIKELIHOOD.md](../guides/SYNTHETIC_LIKELIHOOD.md).
+
 
 ### Using Generated Modules
 
