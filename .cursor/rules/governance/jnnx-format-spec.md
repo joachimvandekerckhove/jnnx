@@ -255,9 +255,89 @@ ddm4.jnnx/
 
 ## Versioning
 
-- **Format Version**: 1.0.0
-- **Backward Compatibility**: Maintained for minor version updates
-- **Breaking Changes**: Only in major version updates
+- **Library version**: Independent of package capabilities (see JNNX release notes)
+- **Package capabilities**: Optional `capabilities` array in `metadata.json`; absent means `["emulator"]` only
+- **Backward Compatibility**: v1.0 emulator packages without `capabilities` remain valid unchanged
+
+## Package Capabilities
+
+Packages declare what JAGS integrations they support via an optional `capabilities` array in `metadata.json`:
+
+| Capability | JAGS surface | Required sidecars |
+|------------|--------------|-------------------|
+| `emulator` (default) | `{function_name}` VectorFunction | `scalers.pkl` |
+| `synthetic_likelihood` | `{name}_sl` ArrayDist + debug nodes | `likelihood.json` |
+
+Rules:
+- `capabilities` omitted → `["emulator"]`
+- `capabilities` must always include `emulator`
+- Unknown capability names are rejected at validation
+- `synthetic_likelihood` capability requires a `synthetic_likelihood` config block and `likelihood.json`
+
+### Emulator-only example (v1.0 compatible)
+
+```json
+{
+  "model_name": "sdt",
+  "module_name": "sdt_emulator",
+  "function_name": "sdt_emulator",
+  "version": "1.0.0",
+  "input_parameters": [...],
+  "output_parameters": [...]
+}
+```
+
+### Synthetic likelihood example
+
+```json
+{
+  "capabilities": ["emulator", "synthetic_likelihood"],
+  "model_name": "ddm3mv",
+  "module_name": "ddm3mv_emulator",
+  "function_name": "ddm3mv_emulator",
+  "version": "1.0.0",
+  "input_parameters": [...],
+  "output_parameters": [
+    {"name": "mu_acc", "group": "mean"},
+    {"name": "chol_1", "group": "chol"}
+  ],
+  "synthetic_likelihood": {
+    "n_summaries": 3,
+    "onnx_layout": "concatenated",
+    "distribution_name": "ddm3mv_sl",
+    "trial_count_arg": "n_trials",
+    "include_sigma_emu": true,
+    "variant": "n_agnostic_cholesky"
+  },
+  "debug_exports": {
+    "predict": true,
+    "mean": true,
+    "omega1": true,
+    "omega_total": true
+  }
+}
+```
+
+### `likelihood.json` (synthetic_likelihood capability)
+
+```json
+{
+  "version": "1.0",
+  "n_summaries": 3,
+  "sigma_emu": [[...], [...], [...]]
+}
+```
+
+ONNX output layout for SL packages: `[mu_std (p), chol_upper (n_chol)]` with `n_chol = p*(p+1)/2`.
+
+Generated JAGS module symbols (single `.so` per package):
+
+- `{function_name}` — emulator alias (mandatory when SL capability present)
+- `{model}_predict` — full flat ONNX output
+- `{model}_mean`, `{model}_omega1`, `{model}_omega_total` — debug/QA nodes
+- `{distribution_name}` — stochastic synthetic likelihood (e.g. `ddm3mv_sl`)
+
+Validate emulator packages with `validate-jnnx` and `validate-module`. SL capability packages additionally run the synthetic-likelihood section of `validate-module`.
 
 ## Security Considerations
 
