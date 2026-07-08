@@ -10,6 +10,14 @@ from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import onnxruntime as ort
 
+from jnnx.capabilities import (
+    get_capabilities,
+    has_capability,
+    sha256_file,
+    validate_capabilities,
+    validate_sl_package,
+)
+
 
 class JNNXPackage:
     """Represents a .jnnx package containing ONNX model and metadata."""
@@ -71,6 +79,20 @@ class JNNXPackage:
         if not onnx_file.exists():
             raise FileNotFoundError(f"model.onnx not found in {self.package_path}")
         return str(onnx_file.absolute())
+
+    @property
+    def capabilities(self) -> List[str]:
+        """Declared package capabilities (defaults to emulator-only)."""
+        return get_capabilities(self.metadata)
+
+    def get_onnx_sha256(self) -> str:
+        return sha256_file(self.package_path / "model.onnx")
+
+    def get_likelihood_sha256(self) -> Optional[str]:
+        path = self.package_path / "likelihood.json"
+        if not path.exists():
+            return None
+        return sha256_file(path)
     
     def validate(self) -> Tuple[bool, List[str]]:
         """Validate package integrity."""
@@ -99,6 +121,10 @@ class JNNXPackage:
             errors.append("'input_parameters' must be a list")
         if 'output_parameters' in self.metadata and not isinstance(self.metadata['output_parameters'], list):
             errors.append("'output_parameters' must be a list")
+
+        errors.extend(validate_capabilities(self.metadata))
+        if has_capability(self.metadata, "synthetic_likelihood"):
+            errors.extend(validate_sl_package(self.metadata, self.package_path))
         
         # Check ONNX model (allow dynamic batch: shape [batch, N] with batch 1 or dynamic)
         try:
