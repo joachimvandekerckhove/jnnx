@@ -19,6 +19,12 @@ import numpy as np
 import pickle
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from jnnx.capabilities import get_capabilities, has_capability
+
 try:
     import onnxruntime as ort
 except ImportError as e:
@@ -124,6 +130,13 @@ def test_package_integrity(jnnx_dir):
     
     if not (jnnx_path / "scalers.pkl").exists() and not (jnnx_path / "scalers.json").exists():
         missing_files.append("scalers.pkl or scalers.json")
+
+    metadata = {}
+    meta_path = jnnx_path / "metadata.json"
+    if meta_path.exists():
+        metadata = json.loads(meta_path.read_text())
+    if has_capability(metadata, "synthetic_likelihood") and not (jnnx_path / "likelihood.json").exists():
+        missing_files.append("likelihood.json")
     
     if missing_files:
         print(f"  ✗ Missing files: {missing_files}")
@@ -158,6 +171,28 @@ def test_model_loading(onnx_file, scalers_file):
         return False
 
 
+def _uses_raw_io(metadata):
+    transforms = metadata.get("transformations") or {}
+    return transforms.get("input_transform", "minmax") == "identity"
+
+
+def _prepare_onnx_input(test_input, scalers, metadata):
+    """Apply scaling for emulator packages; raw I/O for SL capability packages."""
+    if _uses_raw_io(metadata) or has_capability(metadata, "synthetic_likelihood"):
+        return test_input.astype(np.float32)
+    x_min = np.array(scalers["x_min"])
+    x_max = np.array(scalers["x_max"])
+    return ((test_input - x_min) / (x_max - x_min)).astype(np.float32)
+
+
+def _denormalize_output(output_data, scalers, metadata):
+    if _uses_raw_io(metadata) or has_capability(metadata, "synthetic_likelihood"):
+        return output_data
+    y_min = np.array(scalers["y_min"])
+    y_max = np.array(scalers["y_max"])
+    return output_data * (y_max - y_min) + y_min
+
+
 def test_valid_input_output(session, scalers, metadata):
     """Tests 3-4: Valid input/output behavior."""
     print("Test 3-4: Valid input/output behavior...")
@@ -178,23 +213,13 @@ def test_valid_input_output(session, scalers, metadata):
             test_input.append(mid_val)
         
         test_input = np.array([test_input], dtype=np.float32)
-        
-        # Apply input scaling
-        x_min = np.array(scalers['x_min'])
-        x_max = np.array(scalers['x_max'])
-        scaled_input = (test_input - x_min) / (x_max - x_min)
-        
-        # Ensure float32 data type for ONNX Runtime
-        scaled_input = scaled_input.astype(np.float32)
-        
-        # Run inference
-        outputs = session.run(None, {'input': scaled_input})
+
+        scaled_input = _prepare_onnx_input(test_input, scalers, metadata)
+
+        outputs = session.run(None, {"input": scaled_input})
         output_data = outputs[0][0]
-        
-        # Apply output denormalization
-        y_min = np.array(scalers['y_min'])
-        y_max = np.array(scalers['y_max'])
-        denormalized_output = output_data * (y_max - y_min) + y_min
+
+        denormalized_output = _denormalize_output(output_data, scalers, metadata)
         
         # Check output dimensions
         if len(denormalized_output) != output_dim:
@@ -270,6 +295,7 @@ def main():
     scalers = load_scalers(scalers_file)
     
     print(f"Model: {metadata.get('model_name', 'unnamed')}")
+    print(f"Capabilities: {get_capabilities(metadata)}")
     print(f"Version: {metadata.get('version', 'unknown')}")
     print()
     

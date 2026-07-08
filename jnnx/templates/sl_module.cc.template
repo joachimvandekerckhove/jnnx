@@ -1,0 +1,472 @@
+// JAGS synthetic-likelihood module for {{MODULE_NAME}}
+// Auto-generated from jnnx sl_module.cc.template (v1.1)
+
+#include <module/Module.h>
+#include <function/VectorFunction.h>
+#include <function/ArrayFunction.h>
+#include <distribution/ArrayDist.h>
+#include <onnxruntime_cxx_api.h>
+#include <sl_math.h>
+
+#include <cmath>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace jags {
+namespace {{MODULE_NAME}} {
+
+static const int kP = {{P}};
+static const int kNChol = {{N_CHOL}};
+static const int kInputDim = {{INPUT_DIM}};
+static const int kOutputDim = {{OUTPUT_DIM}};
+
+static const double kInputMin[kInputDim] = {{INPUT_MIN}};
+static const double kInputMax[kInputDim] = {{INPUT_MAX}};
+static const double kSigmaEmu[kP * kP] = {{SIGMA_EMU_FLAT}};
+
+#ifdef JNNX_DEBUG
+static thread_local int g_onnx_forward_calls = 0;
+#endif
+
+struct ForwardResult {
+    std::vector<double> mu;
+    std::vector<double> chol_upper;
+};
+
+class OnnxEngine {
+public:
+    explicit OnnxEngine(const std::string& model_path)
+        : env_(ORT_LOGGING_LEVEL_WARNING, "{{MODULE_NAME}}"),
+          session_(env_, model_path.c_str(), Ort::SessionOptions{nullptr})
+    {
+        std::cout << "{{BANNER_STRING}}" << std::endl;
+    }
+
+    ForwardResult forward(const std::vector<double>& theta)
+    {
+#ifdef JNNX_DEBUG
+        ++g_onnx_forward_calls;
+#endif
+        ForwardResult result;
+        result.mu.resize(static_cast<size_t>(kP));
+        result.chol_upper.resize(static_cast<size_t>(kNChol));
+
+        std::vector<float> input_data(static_cast<size_t>(kInputDim));
+        for (int i = 0; i < kInputDim; ++i) {
+            input_data[static_cast<size_t>(i)] = static_cast<float>(theta[static_cast<size_t>(i)]);
+        }
+
+        std::vector<int64_t> input_shape = {1, kInputDim};
+        Ort::MemoryInfo memory_info =
+            Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info, input_data.data(), input_data.size(),
+            input_shape.data(), input_shape.size());
+
+        const char* input_names[] = {"input"};
+        const char* output_names[] = {"output"};
+        auto output_tensors = session_.Run(
+            Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+
+        float* output_data = output_tensors[0].GetTensorMutableData<float>();
+        for (int i = 0; i < kP; ++i) {
+            result.mu[static_cast<size_t>(i)] = static_cast<double>(output_data[i]);
+        }
+        for (int i = 0; i < kNChol; ++i) {
+            result.chol_upper[static_cast<size_t>(i)] =
+                static_cast<double>(output_data[kP + i]);
+        }
+        return result;
+    }
+
+#ifdef JNNX_DEBUG
+    static int forward_call_count() { return g_onnx_forward_calls; }
+    static void reset_forward_call_count() { g_onnx_forward_calls = 0; }
+#endif
+
+private:
+    Ort::Env env_;
+    Ort::Session session_;
+};
+
+static bool check_theta_args(std::vector<double const*> const& args,
+                             std::vector<unsigned int> const& lengths)
+{
+    if (args.size() < static_cast<size_t>(kInputDim)) {
+        return false;
+    }
+    for (int i = 0; i < kInputDim; ++i) {
+        if (lengths[static_cast<size_t>(i)] != 1U) {
+            return false;
+        }
+        const double v = *args[static_cast<size_t>(i)];
+        if (!std::isfinite(v)) {
+            return false;
+        }
+        if (std::isfinite(kInputMin[i]) && v < kInputMin[i]) {
+            return false;
+        }
+        if (std::isfinite(kInputMax[i]) && v > kInputMax[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static std::vector<double> gather_theta(std::vector<double const*> const& args)
+{
+    std::vector<double> theta(static_cast<size_t>(kInputDim));
+    for (int i = 0; i < kInputDim; ++i) {
+        theta[static_cast<size_t>(i)] = *args[static_cast<size_t>(i)];
+    }
+    return theta;
+}
+
+class PredictFunction : public VectorFunction
+{
+public:
+    explicit PredictFunction(std::shared_ptr<OnnxEngine> engine,
+                             std::string const& name)
+        : VectorFunction(name, kInputDim), engine_(std::move(engine)) {}
+
+    bool checkParameterValue(std::vector<double const*> const& args,
+                             std::vector<unsigned int> const& lengths) const override
+    {
+        return check_theta_args(args, lengths);
+    }
+
+    void evaluate(double* value, std::vector<double const*> const& args,
+                  std::vector<unsigned int> const& lengths) const override
+    {
+        try {
+            const ForwardResult out = engine_->forward(gather_theta(args));
+            for (int i = 0; i < kP; ++i) {
+                value[i] = out.mu[static_cast<size_t>(i)];
+            }
+            for (int i = 0; i < kNChol; ++i) {
+                value[kP + i] = out.chol_upper[static_cast<size_t>(i)];
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error in predict evaluation: " << e.what() << std::endl;
+            for (unsigned int i = 0; i < kOutputDim; ++i) {
+                value[i] = 0.5;
+            }
+        }
+    }
+
+    unsigned int length(std::vector<unsigned int> const&,
+                        std::vector<double const*> const&) const override
+    {
+        return static_cast<unsigned int>(kOutputDim);
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
+class MeanFunction : public VectorFunction
+{
+public:
+    explicit MeanFunction(std::shared_ptr<OnnxEngine> engine,
+                          std::string const& name)
+        : VectorFunction(name, kInputDim), engine_(std::move(engine)) {}
+
+    bool checkParameterValue(std::vector<double const*> const& args,
+                             std::vector<unsigned int> const& lengths) const override
+    {
+        return check_theta_args(args, lengths);
+    }
+
+    void evaluate(double* value, std::vector<double const*> const& args,
+                  std::vector<unsigned int> const& lengths) const override
+    {
+        const ForwardResult out = engine_->forward(gather_theta(args));
+        for (int i = 0; i < kP; ++i) {
+            value[i] = out.mu[static_cast<size_t>(i)];
+        }
+    }
+
+    unsigned int length(std::vector<unsigned int> const&,
+                        std::vector<double const*> const&) const override
+    {
+        return static_cast<unsigned int>(kP);
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
+class Omega1Function : public ArrayFunction
+{
+public:
+    explicit Omega1Function(std::shared_ptr<OnnxEngine> engine,
+                            std::string const& name)
+        : ArrayFunction(name, kInputDim), engine_(std::move(engine)) {}
+
+    bool checkParameterDim(std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        if (dims.size() != static_cast<size_t>(kInputDim)) {
+            return false;
+        }
+        for (auto const& d : dims) {
+            if (d.size() != 1U || d[0] != 1U) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool checkParameterValue(std::vector<double const*> const& args,
+                             std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        std::vector<unsigned int> lengths;
+        lengths.reserve(dims.size());
+        for (auto const& d : dims) {
+            lengths.push_back(d.empty() ? 0U : d[0]);
+        }
+        return check_theta_args(args, lengths);
+    }
+
+    std::vector<unsigned int> dim(std::vector<std::vector<unsigned int>> const&,
+                                  std::vector<double const*> const&) const override
+    {
+        return {static_cast<unsigned int>(kP), static_cast<unsigned int>(kP)};
+    }
+
+    void evaluate(double* value, std::vector<double const*> const& args,
+                  std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        const ForwardResult out = engine_->forward(gather_theta(args));
+        std::vector<double> omega1;
+        jnnx::sl::omega1_from_chol(out.chol_upper, kP, omega1);
+        for (int i = 0; i < kP * kP; ++i) {
+            value[i] = omega1[static_cast<size_t>(i)];
+        }
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
+class OmegaTotalFunction : public ArrayFunction
+{
+public:
+    explicit OmegaTotalFunction(std::shared_ptr<OnnxEngine> engine,
+                                std::string const& name)
+        : ArrayFunction(name, kInputDim + 1), engine_(std::move(engine)) {}
+
+    bool checkParameterDim(std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        if (dims.size() != static_cast<size_t>(kInputDim + 1)) {
+            return false;
+        }
+        for (size_t i = 0; i < dims.size(); ++i) {
+            if (dims[i].size() != 1U || dims[i][0] != 1U) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool checkParameterValue(std::vector<double const*> const& args,
+                             std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        if (args.size() != static_cast<size_t>(kInputDim + 1)) {
+            return false;
+        }
+        std::vector<unsigned int> lengths(kInputDim, 1U);
+        if (!check_theta_args(args, lengths)) {
+            return false;
+        }
+        const double n_trials = *args[static_cast<size_t>(kInputDim)];
+        return std::isfinite(n_trials) && n_trials > 0.0;
+    }
+
+    std::vector<unsigned int> dim(std::vector<std::vector<unsigned int>> const&,
+                                  std::vector<double const*> const&) const override
+    {
+        return {static_cast<unsigned int>(kP), static_cast<unsigned int>(kP)};
+    }
+
+    void evaluate(double* value, std::vector<double const*> const& args,
+                  std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        const ForwardResult out = engine_->forward(gather_theta(args));
+        const double n_trials = *args[static_cast<size_t>(kInputDim)];
+        std::vector<double> sigma(static_cast<size_t>(kP * kP));
+        for (int i = 0; i < kP * kP; ++i) {
+            sigma[static_cast<size_t>(i)] = kSigmaEmu[i];
+        }
+        std::vector<double> omega_total;
+        jnnx::sl::omega_total_from_chol(out.chol_upper, kP, n_trials, sigma, omega_total);
+        for (int i = 0; i < kP * kP; ++i) {
+            value[i] = omega_total[static_cast<size_t>(i)];
+        }
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
+class SL_Distribution : public ArrayDist
+{
+public:
+    explicit SL_Distribution(std::shared_ptr<OnnxEngine> engine,
+                             std::string const& name)
+        : ArrayDist(name, kInputDim + 1), engine_(std::move(engine)) {}
+
+    double logDensity(double const* x, unsigned int length, PDFType,
+                      std::vector<double const*> const& parameters,
+                      std::vector<std::vector<unsigned int>> const& dims,
+                      double const*, double const*) const override
+    {
+        if (length != static_cast<unsigned int>(kP)) {
+            return -std::numeric_limits<double>::infinity();
+        }
+        if (!checkParameterValue(parameters, dims)) {
+            return -std::numeric_limits<double>::infinity();
+        }
+
+#ifdef JNNX_DEBUG
+        OnnxEngine::reset_forward_call_count();
+#endif
+        try {
+            std::vector<double> theta(static_cast<size_t>(kInputDim));
+            for (int i = 0; i < kInputDim; ++i) {
+                theta[static_cast<size_t>(i)] = *parameters[static_cast<size_t>(i)];
+            }
+            const ForwardResult out = engine_->forward(theta);
+#ifdef JNNX_DEBUG
+            if (OnnxEngine::forward_call_count() != 1) {
+                std::cerr << "JNNX_DEBUG: expected 1 ONNX call in logDensity, got "
+                          << OnnxEngine::forward_call_count() << std::endl;
+            }
+#endif
+            const double n_trials = *parameters[static_cast<size_t>(kInputDim)];
+            std::vector<double> sigma(static_cast<size_t>(kP * kP));
+            for (int i = 0; i < kP * kP; ++i) {
+                sigma[static_cast<size_t>(i)] = kSigmaEmu[i];
+            }
+            std::vector<double> omega_total;
+            if (!jnnx::sl::omega_total_from_chol(
+                    out.chol_upper, kP, n_trials, sigma, omega_total)) {
+                return -std::numeric_limits<double>::infinity();
+            }
+            std::vector<double> obs(static_cast<size_t>(kP));
+            std::vector<double> mu = out.mu;
+            for (int i = 0; i < kP; ++i) {
+                obs[static_cast<size_t>(i)] = x[i];
+            }
+            return jnnx::sl::mvn_logdens_precision(obs, mu, omega_total, kP);
+        } catch (const std::exception& e) {
+            std::cerr << "Error in SL logDensity: " << e.what() << std::endl;
+            return -std::numeric_limits<double>::infinity();
+        }
+    }
+
+    void randomSample(double* x, unsigned int length,
+                      std::vector<double const*> const&,
+                      std::vector<std::vector<unsigned int>> const&,
+                      double const*, double const*, RNG*) const override
+    {
+        for (unsigned int i = 0; i < length; ++i) {
+            x[i] = std::numeric_limits<double>::quiet_NaN();
+        }
+    }
+
+    void typicalValue(double* x, unsigned int length,
+                      std::vector<double const*> const& parameters,
+                      std::vector<std::vector<unsigned int>> const& dims,
+                      double const*, double const*) const override
+    {
+        if (length != static_cast<unsigned int>(kP) ||
+            !checkParameterValue(parameters, dims)) {
+            for (unsigned int i = 0; i < length; ++i) {
+                x[i] = 0.0;
+            }
+            return;
+        }
+        std::vector<double> theta(static_cast<size_t>(kInputDim));
+        for (int i = 0; i < kInputDim; ++i) {
+            theta[static_cast<size_t>(i)] = *parameters[static_cast<size_t>(i)];
+        }
+        const ForwardResult out = engine_->forward(theta);
+        for (int i = 0; i < kP; ++i) {
+            x[static_cast<size_t>(i)] = out.mu[static_cast<size_t>(i)];
+        }
+    }
+
+    bool checkParameterDim(std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        if (dims.size() != static_cast<size_t>(kInputDim + 1)) {
+            return false;
+        }
+        for (auto const& d : dims) {
+            if (d.size() != 1U || d[0] != 1U) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool checkParameterValue(std::vector<double const*> const& parameters,
+                             std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        if (parameters.size() != static_cast<size_t>(kInputDim + 1)) {
+            return false;
+        }
+        std::vector<unsigned int> lengths(kInputDim, 1U);
+        if (!check_theta_args(parameters, lengths)) {
+            return false;
+        }
+        const double n_trials = *parameters[static_cast<size_t>(kInputDim)];
+        return std::isfinite(n_trials) && n_trials > 0.0;
+    }
+
+    std::vector<unsigned int> dim(
+        std::vector<std::vector<unsigned int>> const& dims) const override
+    {
+        return {static_cast<unsigned int>(kP)};
+    }
+
+    void support(double* lower, double* upper, unsigned int length,
+                 std::vector<double const*> const&,
+                 std::vector<std::vector<unsigned int>> const&) const override
+    {
+        for (unsigned int i = 0; i < length; ++i) {
+            lower[i] = -std::numeric_limits<double>::infinity();
+            upper[i] = std::numeric_limits<double>::infinity();
+        }
+    }
+
+    bool isSupportFixed(std::vector<bool> const& fixmask) const override
+    {
+        return false;
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
+class {{MODULE_CLASS}} : public Module
+{
+public:
+    {{MODULE_CLASS}}()
+        : Module("{{MODULE_NAME}}"),
+          engine_(std::make_shared<OnnxEngine>("{{ONNX_PATH}}"))
+    {
+        {{MODULE_REGISTRATIONS}}
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
+{{MODULE_CLASS}} _{{MODULE_NAME}}_module;
+
+}  // namespace {{MODULE_NAME}}
+}  // namespace jags

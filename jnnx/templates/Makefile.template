@@ -10,7 +10,7 @@ INSTALL_DIR = {{INSTALL_DIR}}
 
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -fPIC -O2 -Wall -std=c++17
+CXXFLAGS = -fPIC -O2 -Wall -std=c++17 {{EXTRA_CXXFLAGS}}
 LDFLAGS = -shared
 
 # JAGS configuration
@@ -26,16 +26,12 @@ endif
 ONNX_INCLUDE = -I$(ONNXRUNTIME_DIR)/include
 ONNX_LIBS = -L$(ONNXRUNTIME_DIR)/lib -lonnxruntime
 
-# PyTorch (optional for now)
-# TORCH_INCLUDE = $(shell python3 -c "import torch; print('-I' + torch.__path__[0] + '/include/torch/csrc/api/include')")
-# TORCH_LIBS = $(shell python3 -c "import torch; print('-L' + torch.__path__[0] + '/lib -ltorch -lc10')")
-
 # Combined flags
-ALL_INCLUDES = $(JAGS_INCLUDE) $(ONNX_INCLUDE)
+ALL_INCLUDES = $(JAGS_INCLUDE) $(ONNX_INCLUDE) {{SL_INCLUDE}}
 ALL_LIBS = $(JAGS_LIBS) $(ONNX_LIBS)
 
 # Source files
-SOURCES = $(MODULE_NAME).cc
+SOURCES = {{SOURCES}}
 OBJECTS = $(SOURCES:.cc=.o)
 
 # Targets
@@ -99,4 +95,3 @@ clean:
 	rm -f $(OBJECTS) $(MODULE_SO)
 
 .PHONY: all install uninstall clean
-

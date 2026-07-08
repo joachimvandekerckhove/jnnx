@@ -555,7 +555,8 @@ class TestCLIValidateModule(unittest.TestCase):
             capture_output=True, text=True, cwd=PROJECT_ROOT,
         )
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("Usage", r.stdout or r.stderr)
+        combined = (r.stdout or "") + (r.stderr or "")
+        self.assertTrue("usage:" in combined.lower() or "Usage" in combined)
 
     def test_nonexistent_dir(self):
         r = subprocess.run(
