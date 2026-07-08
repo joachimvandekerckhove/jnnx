@@ -58,5 +58,5 @@ def mvn_logdens_precision(
     sign, logdet = np.linalg.slogdet(omega_work)
     if sign <= 0:
         return float("-inf")
-    quad = float(diff @ np.linalg.solve(omega_work, diff))
+    quad = float(diff @ omega_work @ diff)
     return float(-0.5 * (p * np.log(2.0 * np.pi) - logdet + quad))

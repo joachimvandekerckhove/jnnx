@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -78,12 +78,19 @@ def _run_jags_deterministic(
     model_code: str,
     monitor: List[str],
     data: Optional[Dict[str, Any]] = None,
+    *,
+    extra_modules: Optional[List[str]] = None,
 ) -> Any:
     import py2jags
 
     data_dict = dict(data or {})
     if "n" not in data_dict:
         data_dict["n"] = 1
+    modules = [module_name]
+    if extra_modules:
+        for name in extra_modules:
+            if name not in modules:
+                modules.append(name)
     return py2jags.run_jags(
         model_string=model_code,
         data_dict=data_dict,
@@ -92,8 +99,56 @@ def _run_jags_deterministic(
         nadapt=0,
         nburnin=0,
         monitorparams=monitor,
-        modules=[module_name],
+        modules=modules,
     )
+
+
+def _scipy_mvn_logpdf(
+    obs_std: Sequence[float],
+    mu: np.ndarray,
+    omega: np.ndarray,
+) -> float:
+    from scipy.stats import multivariate_normal
+
+    from jnnx.sl_reference import JITTER
+
+    omega_work = np.asarray(omega, dtype=np.float64).copy()
+    p = omega_work.shape[0]
+    for i in range(p):
+        omega_work[i, i] += JITTER
+    cov = np.linalg.inv(omega_work)
+    return float(
+        multivariate_normal.logpdf(
+            np.asarray(obs_std, dtype=np.float64),
+            mean=np.asarray(mu, dtype=np.float64),
+            cov=cov,
+            allow_singular=False,
+        )
+    )
+
+
+def _fetch_mu_omega_jags(
+    module_name: str,
+    mean_name: str,
+    omega_total_name: str,
+    theta_str: str,
+    n_trials: int,
+    p: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    model_code = f"""
+    model {{
+        mu[1:{p}] <- {mean_name}({theta_str})
+        OmegaTot[1:{p},1:{p}] <- {omega_total_name}({theta_str}, {n_trials})
+        dummy ~ dnorm(0, 1) T(0, 0)
+    }}
+    """
+    chains = _run_jags_deterministic(module_name, model_code, ["mu", "OmegaTot"])
+    mu = np.array([chains.get_samples(f"mu_{i+1}")[0] for i in range(p)])
+    omega = np.zeros((p, p))
+    for i in range(p):
+        for j in range(p):
+            omega[i, j] = float(chains.get_samples(f"OmegaTot_{i+1}_{j+1}")[0])
+    return mu, omega
 
 
 def _sl_logdens_ref(
@@ -342,13 +397,14 @@ def test_logdens_legacy_subset(
     *,
     max_cases: int = 5,
 ) -> Tuple[bool, str]:
-    """8.6c: logdens node vs density from JAGS legacy mean/omega_total nodes."""
+    """8.6c: {name}_logdens vs SciPy dmnorm reference on JAGS mean/omega_total."""
     metadata = package.metadata
     module_name = metadata["module_name"]
     mean_name = sl_cfg["mean_name"]
     omega_total_name = sl_cfg["omega_total_name"]
     p = sl_cfg["p"]
     atol = fixture["tolerance"]["atol"]
+    rtol = fixture["tolerance"].get("rtol", 1e-5)
     cases = fixture["cases"][:max_cases]
     max_diff = 0.0
 
@@ -357,35 +413,76 @@ def test_logdens_legacy_subset(
         theta_str = ", ".join(str(t) for t in theta)
         n_trials = case["n_trials"]
         obs_std = case["obs_std"]
-        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        mu, omega = _fetch_mu_omega_jags(
+            module_name, mean_name, omega_total_name, theta_str, n_trials, p
+        )
+        ref = _scipy_mvn_logpdf(obs_std, mu, omega)
 
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
         model_code = f"""
         model {{
-            mu[1:{p}] <- {mean_name}({theta_str})
-            OmegaTot[1:{p},1:{p}] <- {omega_total_name}({theta_str}, {n_trials})
             logdens_hat <- {logdens_expr}
             dummy ~ dnorm(0, 1) T(0, 0)
         }}
         """
         chains = _run_jags_deterministic(
-            module_name,
-            model_code,
-            ["mu", "OmegaTot", "logdens_hat"],
-            data={"obs_std": obs_std},
+            module_name, model_code, ["logdens_hat"], data={"obs_std": obs_std}
         )
-        mu = np.array([chains.get_samples(f"mu_{i+1}")[0] for i in range(p)])
-        omega = np.zeros((p, p))
-        for i in range(p):
-            for j in range(p):
-                omega[i, j] = float(chains.get_samples(f"OmegaTot_{i+1}_{j+1}")[0])
         got = float(chains.get_samples("logdens_hat")[0])
-        ref = mvn_logdens_precision(obs_std, mu, omega, p)
         diff = abs(got - ref)
+        case_atol = max(atol, rtol * max(1.0, abs(ref)), 5e-4)
         max_diff = max(max_diff, diff)
-        if diff > atol:
-            return False, f"legacy assembly diff={diff:.2e} ref={ref:.6f} got={got:.6f}"
+        if diff > case_atol:
+            return False, f"SciPy dmnorm diff={diff:.2e} ref={ref:.6f} got={got:.6f}"
 
-    return True, f"legacy assembly parity max diff {max_diff:.2e} (n={len(cases)})"
+    return True, f"SciPy dmnorm parity max diff {max_diff:.2e} (n={len(cases)})"
+
+
+def test_logdens_dmnorm_parity(
+    package: JNNXPackage,
+    fixture: Dict[str, Any],
+    sl_cfg: Dict[str, Any],
+    *,
+    max_cases: int = 10,
+) -> Tuple[bool, str]:
+    """8.10: {name}_logdens vs SciPy MVN (cov=inv(Omega)) on JAGS nodes."""
+    metadata = package.metadata
+    module_name = metadata["module_name"]
+    mean_name = sl_cfg["mean_name"]
+    omega_total_name = sl_cfg["omega_total_name"]
+    p = sl_cfg["p"]
+    atol = fixture["tolerance"]["atol"]
+    rtol = fixture["tolerance"].get("rtol", 1e-5)
+    cases = fixture["cases"][:max_cases]
+    max_diff = 0.0
+
+    for case in cases:
+        theta_str = ", ".join(str(t) for t in case["theta"])
+        n_trials = case["n_trials"]
+        obs_std = case["obs_std"]
+        mu, omega = _fetch_mu_omega_jags(
+            module_name, mean_name, omega_total_name, theta_str, n_trials, p
+        )
+        ref = _scipy_mvn_logpdf(obs_std, mu, omega)
+
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        model_code = f"""
+        model {{
+            logdens_hat <- {logdens_expr}
+            dummy ~ dnorm(0, 1) T(0, 0)
+        }}
+        """
+        chains = _run_jags_deterministic(
+            module_name, model_code, ["logdens_hat"], data={"obs_std": obs_std}
+        )
+        got = float(chains.get_samples("logdens_hat")[0])
+        diff = abs(got - ref)
+        case_atol = max(atol, rtol * max(1.0, abs(ref)), 5e-4)
+        max_diff = max(max_diff, diff)
+        if diff > case_atol:
+            return False, f"dmnorm cross-check diff={diff:.2e} ref={ref:.6f} got={got:.6f}"
+
+    return True, f"dmnorm cross-check max diff {max_diff:.2e} (n={len(cases)})"
 
 
 def test_deviance_sl_vs_legacy(
@@ -395,51 +492,59 @@ def test_deviance_sl_vs_legacy(
     *,
     max_cases: int = 3,
 ) -> Tuple[bool, str]:
-    """8.7: integrated logdens matches legacy node composition on a subset."""
+    """8.7: {name}_logdens vs JAGS dmnorm deviance (-deviance/2) at fixed theta."""
     metadata = package.metadata
     module_name = metadata["module_name"]
     cases = fixture["cases"][:max_cases]
     max_diff = 0.0
     atol = fixture["tolerance"]["atol"]
+    p = sl_cfg["p"]
+    mean_name = sl_cfg["mean_name"]
+    omega_total_name = sl_cfg["omega_total_name"]
 
     for case in cases:
         theta_str = ", ".join(str(t) for t in case["theta"])
         n_trials = case["n_trials"]
         obs_std = case["obs_std"]
         logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
-        p = sl_cfg["p"]
-        mean_name = sl_cfg["mean_name"]
-        omega_total_name = sl_cfg["omega_total_name"]
 
-        integrated = f"""
+        sl_model = f"""
         model {{
             logdens_sl <- {logdens_expr}
             dummy ~ dnorm(0, 1) T(0, 0)
         }}
         """
-        legacy = f"""
+        legacy_model = f"""
         model {{
             mu[1:{p}] <- {mean_name}({theta_str})
             OmegaTot[1:{p},1:{p}] <- {omega_total_name}({theta_str}, {n_trials})
-            logdens_legacy <- {logdens_expr}
+            obs_std[1:{p}] ~ dmnorm(mu[1:{p}], OmegaTot[1:{p},1:{p}])
             dummy ~ dnorm(0, 1) T(0, 0)
         }}
         """
         data = {"obs_std": obs_std}
         sl_chains = _run_jags_deterministic(
-            module_name, integrated, ["logdens_sl"], data={"obs_std": obs_std}
+            module_name, sl_model, ["logdens_sl"], data=data
         )
         leg_chains = _run_jags_deterministic(
-            module_name, legacy, ["logdens_legacy"], data={"obs_std": obs_std}
+            module_name,
+            legacy_model,
+            ["deviance"],
+            data=data,
+            extra_modules=["dic"],
         )
         sl_val = float(sl_chains.get_samples("logdens_sl")[0])
-        leg_val = float(leg_chains.get_samples("logdens_legacy")[0])
+        leg_dev = float(leg_chains.get_samples("deviance")[0])
+        leg_val = -0.5 * leg_dev
         diff = abs(sl_val - leg_val)
         max_diff = max(max_diff, diff)
         if diff > atol:
-            return False, f"logdens mismatch diff={diff:.2e} sl={sl_val} legacy={leg_val}"
+            return False, (
+                f"deviance mismatch diff={diff:.2e} logdens={sl_val:.6f} "
+                f"legacy={leg_val:.6f}"
+            )
 
-    return True, f"logdens integrated vs legacy max diff {max_diff:.2e} (n={len(cases)})"
+    return True, f"logdens vs dmnorm deviance max diff {max_diff:.2e} (n={len(cases)})"
 
 
 def test_sl_smoke(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tuple[bool, str]:
@@ -571,6 +676,7 @@ def run_sl_validation(
         ("SL 8.7 deviance SL vs legacy", lambda: test_deviance_sl_vs_legacy(package, fixture, sl_cfg)),
         ("SL 8.8 SL smoke", lambda: test_sl_smoke(package, sl_cfg)),
         ("SL 8.9 randomSample PPC", lambda: test_random_sample_ppc(package, sl_cfg)),
+        ("SL 8.10 dmnorm cross-check", lambda: test_logdens_dmnorm_parity(package, fixture, sl_cfg)),
     ]
     if so_path.exists():
         tests.extend(jags_tests)

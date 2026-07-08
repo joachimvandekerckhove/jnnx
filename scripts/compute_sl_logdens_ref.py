@@ -108,7 +108,7 @@ def mvn_logdens_precision(
     sign, logdet = np.linalg.slogdet(omega)
     if sign <= 0:
         raise ValueError("Omega_total is not positive definite")
-    quad = float(diff @ np.linalg.solve(omega, diff))
+    quad = float(diff @ omega @ diff)
     return float(-0.5 * (n * np.log(2.0 * np.pi) - logdet + quad))
 
 

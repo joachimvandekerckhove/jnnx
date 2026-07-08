@@ -59,9 +59,15 @@ obs_rep[1:3] ~ dmnorm(mu[1:3], Omega_total[1:3,1:3])
 
 Validation test **8.9** checks that `randomSample` returns finite draws.
 
+## Precision contract
+
+`{name}_sl` and `{name}_logdens` use JAGS `dmnorm` precision parameterization: `Omega` in `dmnorm(mu, Omega)` is the **precision** matrix, and the log-density quadratic term is `diff' * Omega * diff`.
+
+Validation test **8.10** cross-checks `{name}_logdens` against SciPy `multivariate_normal` with `cov = inv(Omega)` computed from JAGS `{name}_mean` / `{name}_omega_total` nodes. This is the migration gate that catches precision-formula regressions.
+
 ## Deviance and DIC
 
-JAGS accumulates deviance for custom `ArrayDist` nodes from `logDensity`. For `{name}_sl`, deviance should match the legacy `dmnorm` assembly built from `{name}_mean` and `{name}_omega_total` on identical data (validation test **8.7**). You can monitor `deviance` with the `dic` module when fitting `obs_std ~ {name}_sl(...)`.
+JAGS accumulates deviance for custom `ArrayDist` nodes from `logDensity`. For `{name}_sl`, `-deviance/2` from a legacy `obs_std ~ dmnorm(mu, Omega_total)` model should match `{name}_logdens` on identical data (validation test **8.7**). You can monitor `deviance` with the `dic` module when fitting `obs_std ~ {name}_sl(...)`.
 
 ## Numerical jitter
 

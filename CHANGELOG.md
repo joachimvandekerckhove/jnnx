@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-07-08
+
+### Fixed
+- **Critical:** `mvn_logdens_precision` quadratic form now uses `diff' * Omega * diff` (precision), matching JAGS `dmnorm(mu, Omega)` — fixes ESL parameter recovery with `{name}_sl`
+- Regenerated `fixtures/ddm3mv_sl_regression.json` log-density column with corrected formula
+- **SL 8.6c / 8.7:** compare against SciPy `dmnorm` and JAGS `dmnorm` deviance instead of self-referential Python helper
+- **SL 8.10:** new `dmnorm` cross-check gate (`{name}_logdens` vs SciPy on JAGS `mean`/`omega_total` nodes)
+
+### Added
+- `scripts/jnnx_sl_logdens_probe.py` standalone regression probe from migration-blocker repro
+- SciPy parity unit tests in `tests/test_sl_math_reference.py`
+
 ## [1.1.1] - 2026-07-08
 
 ### Fixed

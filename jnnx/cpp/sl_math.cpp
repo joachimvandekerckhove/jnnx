@@ -104,9 +104,7 @@ bool chol_lower_spd(const std::vector<double>& sigma, int p,
     return true;
 }
 
-bool chol_logdet_and_solve(const std::vector<double>& omega, int p,
-                           const std::vector<double>& rhs,
-                           double& logdet_out, std::vector<double>& sol_out) {
+bool chol_logdet_spd(const std::vector<double>& omega, int p, double& logdet_out) {
     std::vector<double> L;
     if (!chol_lower_spd(omega, p, L)) {
         return false;
@@ -114,24 +112,6 @@ bool chol_logdet_and_solve(const std::vector<double>& omega, int p,
     logdet_out = 0.0;
     for (int i = 0; i < p; ++i) {
         logdet_out += 2.0 * std::log(L[static_cast<size_t>(i * p + i)]);
-    }
-
-    std::vector<double> y(static_cast<size_t>(p), 0.0);
-    for (int i = 0; i < p; ++i) {
-        double sum = rhs[static_cast<size_t>(i)];
-        for (int j = 0; j < i; ++j) {
-            sum -= L[static_cast<size_t>(i * p + j)] * y[static_cast<size_t>(j)];
-        }
-        y[static_cast<size_t>(i)] = sum / L[static_cast<size_t>(i * p + i)];
-    }
-
-    sol_out.assign(static_cast<size_t>(p), 0.0);
-    for (int i = p - 1; i >= 0; --i) {
-        double sum = y[static_cast<size_t>(i)];
-        for (int j = i + 1; j < p; ++j) {
-            sum -= L[static_cast<size_t>(j * p + i)] * sol_out[static_cast<size_t>(j)];
-        }
-        sol_out[static_cast<size_t>(i)] = sum / L[static_cast<size_t>(i * p + i)];
     }
     return true;
 }
@@ -227,14 +207,18 @@ double mvn_logdens_precision(const std::vector<double>& x,
     add_jitter(omega_work, p);
 
     double logdet = 0.0;
-    std::vector<double> sol;
-    if (!chol_logdet_and_solve(omega_work, p, diff, logdet, sol)) {
+    if (!chol_logdet_spd(omega_work, p, logdet)) {
         return -std::numeric_limits<double>::infinity();
     }
 
     double quad = 0.0;
     for (int i = 0; i < p; ++i) {
-        quad += diff[static_cast<size_t>(i)] * sol[static_cast<size_t>(i)];
+        double row = 0.0;
+        for (int j = 0; j < p; ++j) {
+            row += omega_work[static_cast<size_t>(i * p + j)] *
+                   diff[static_cast<size_t>(j)];
+        }
+        quad += diff[static_cast<size_t>(i)] * row;
     }
     return -0.5 * (static_cast<double>(p) * std::log(2.0 * kPi) - logdet + quad);
 }

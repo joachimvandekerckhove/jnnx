@@ -13,7 +13,7 @@ Emulator tests (all packages):
 6) Numerical consistency with Python ONNX evaluation
 
 Synthetic-likelihood tests (when capability declared):
-SL 8.1-8.9 (requires compiled + installed module)
+SL 8.1-8.10, 8.8-8.9 (requires compiled + installed module)
 """
 
 from __future__ import annotations

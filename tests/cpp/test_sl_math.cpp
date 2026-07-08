@@ -97,7 +97,7 @@ int main() {
         -0.973837236291781, -173.13515422136476, 171.78601558328555,
     };
     const double logdens_fix = mvn_logdens_precision(x_fix, mu_fix, omega_fix, p);
-    check(approx_equal(logdens_fix, 4.711718144111194, 1e-5),
+    check(approx_equal(logdens_fix, 3.469261689945615, 1e-5),
           "fixture case0 logdens");
 
     const auto pairs = upper_tri_index_pairs(p);
