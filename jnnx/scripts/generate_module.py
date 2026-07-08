@@ -7,16 +7,15 @@ Usage: ./generate-module models/sdt.jnnx/
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
+from jnnx.capabilities import build_sl_config, get_capabilities, has_capability
+
 
 def find_files(jnnx_dir):
-    """Find required files in .jnnx directory.
-
-    Scalers (pkl or json) must be present for a valid package; they are not
-    consumed by C++ generation (scaling is baked into ONNX per contract).
-    """
+    """Find required files in .jnnx directory."""
     jnnx_path = Path(jnnx_dir)
     if not jnnx_path.exists():
         print(f"Error: Directory {jnnx_dir} does not exist")
@@ -42,7 +41,7 @@ def find_files(jnnx_dir):
         print(f"Error: neither scalers.pkl nor scalers.json found in {jnnx_dir}")
         sys.exit(1)
 
-    return metadata_file, onnx_file
+    return metadata_file, onnx_file, jnnx_path
 
 
 def load_metadata(metadata_file):
@@ -59,93 +58,126 @@ def extract_dimensions_from_metadata(metadata):
     """Extract input/output dimensions from metadata."""
     input_params = metadata.get('input_parameters', [])
     output_params = metadata.get('output_parameters', [])
-    
-    input_dim = len(input_params)
-    output_dim = len(output_params)
-    
-    return input_dim, output_dim
+    return len(input_params), len(output_params)
 
 
 def extract_limits_from_metadata(metadata):
     """Extract input/output limits from metadata."""
     input_params = metadata.get('input_parameters', [])
     output_params = metadata.get('output_parameters', [])
-    
+
     input_min = [param.get('min', 0.0) for param in input_params]
     input_max = [param.get('max', 1.0) for param in input_params]
     output_min = [param.get('min', 0.0) for param in output_params]
     output_max = [param.get('max', 1.0) for param in output_params]
-    
+
     return input_min, input_max, output_min, output_max
 
 
-def format_array(arr):
+def format_array(arr, use_double=False):
     """Format array for C++ code generation."""
     if not arr:
         return "{}"
-    
+
+    suffix = "" if use_double else "f"
     formatted = []
     for val in arr:
         if isinstance(val, str):
-            # Handle string representations of Inf/-Inf
-            if val == "Inf" or val == "inf":
-                formatted.append("1e38f")
-            elif val == "-Inf" or val == "-inf":
-                formatted.append("-1e38f")
+            if val in ("Inf", "inf"):
+                formatted.append("1e38" + suffix)
+            elif val in ("-Inf", "-inf"):
+                formatted.append("-1e38" + suffix)
             else:
                 try:
                     float_val = float(val)
-                    formatted.append(f"{float_val:.6f}f")
+                    formatted.append(f"{float_val:.10g}{suffix}")
                 except ValueError:
-                    formatted.append(f"{val}f")
+                    formatted.append(f"{val}{suffix}")
         else:
             if val == float('inf'):
-                formatted.append("1e38f")
+                formatted.append("1e38" + suffix)
             elif val == float('-inf'):
-                formatted.append("-1e38f")
+                formatted.append("-1e38" + suffix)
             else:
-                formatted.append(f"{val:.6f}f")
-    
+                formatted.append(f"{val:.10g}{suffix}")
+
     return "{" + ", ".join(formatted) + "}"
 
 
 def _templates_dir():
-    """Directory containing C++/Makefile templates (works from repo or when installed)."""
+    """Directory containing C++/Makefile templates."""
     return Path(__file__).resolve().parent.parent / "templates"
 
 
-def generate_module_code(metadata, onnx_file, output_dir):
+def _cpp_dir():
+    return Path(__file__).resolve().parent.parent / "cpp"
+
+
+def _build_module_registrations(sl_cfg):
+    lines = []
+    if sl_cfg["debug_exports"].get("predict", True):
+        lines.append(
+            f'insert(new PredictFunction(engine_, "{sl_cfg["predict_name"]}"));'
+        )
+    lines.append(
+        f'insert(new PredictFunction(engine_, "{sl_cfg["emulator_name"]}"));'
+    )
+    if sl_cfg["debug_exports"].get("mean", True):
+        lines.append(f'insert(new MeanFunction(engine_, "{sl_cfg["mean_name"]}"));')
+    if sl_cfg["debug_exports"].get("omega1", True):
+        lines.append(
+            f'insert(new Omega1Function(engine_, "{sl_cfg["omega1_name"]}"));'
+        )
+    if sl_cfg["debug_exports"].get("omega_total", True):
+        lines.append(
+            'insert(new OmegaTotalFunction(engine_, '
+            f'"{sl_cfg["omega_total_name"]}"));'
+        )
+    lines.append(
+        f'insert(new SL_Distribution(engine_, "{sl_cfg["distribution_name"]}"));'
+    )
+    return "\n        ".join(lines)
+
+
+def _write_build_manifest(output_dir, metadata, sl_cfg=None):
+    manifest = {
+        "module_name": metadata.get("module_name"),
+        "capabilities": get_capabilities(metadata),
+    }
+    if sl_cfg:
+        manifest["onnx_sha256"] = sl_cfg["onnx_sha256"]
+        manifest["likelihood_sha256"] = sl_cfg["likelihood_sha256"]
+    (output_dir / "build_manifest.json").write_text(json.dumps(manifest, indent=2))
+
+
+def generate_module_code(metadata, onnx_file, output_dir, package_dir):
     """Generate C++ module code from templates."""
-    template_file = _templates_dir() / "module.cc.template"
+    sl_mode = has_capability(metadata, "synthetic_likelihood")
+    template_name = "sl_module.cc.template" if sl_mode else "module.cc.template"
+    template_file = _templates_dir() / template_name
     if not template_file.exists():
         print(f"Error: Template file not found: {template_file}")
         sys.exit(1)
 
-    template_content = template_file.read_text()
-
-    # Require explicit names from metadata
     module_name = metadata.get('module_name')
     function_name = metadata.get('function_name')
     if not module_name or not function_name:
         print('Error: metadata.json must include module_name and function_name')
         sys.exit(1)
+
     function_class = f"{module_name.replace('_','').upper()}_Function"
     module_class = f"{module_name.replace('_','').upper()}_Module"
 
     input_dim, output_dim = extract_dimensions_from_metadata(metadata)
     input_min, input_max, output_min, output_max = extract_limits_from_metadata(metadata)
 
-    # Create banner string
     model_name = metadata.get('model_name', module_name)
     banner = f"The {model_name} is being loaded. (c) 2025 Joachim Vandekerckhove"
-    
-    # Copy ONNX file to build directory for easier access
+
     onnx_copy = output_dir / "model.onnx"
-    import shutil
     shutil.copy2(onnx_file, onnx_copy)
     print(f"Copied ONNX model to: {onnx_copy}")
-    
-    # Replace placeholders
+
     replacements = {
         '{{MODULE_NAME}}': module_name,
         '{{FUNCTION_NAME}}': function_name,
@@ -154,24 +186,39 @@ def generate_module_code(metadata, onnx_file, output_dir):
         '{{INPUT_DIM}}': str(input_dim),
         '{{OUTPUT_DIM}}': str(output_dim),
         '{{ONNX_PATH}}': str(onnx_copy.absolute()),
-        '{{INPUT_MIN}}': format_array(input_min),
-        '{{INPUT_MAX}}': format_array(input_max),
+        '{{INPUT_MIN}}': format_array(input_min, use_double=sl_mode),
+        '{{INPUT_MAX}}': format_array(input_max, use_double=sl_mode),
         '{{OUTPUT_MIN}}': format_array(output_min),
         '{{OUTPUT_MAX}}': format_array(output_max),
         '{{BANNER_STRING}}': banner,
     }
-    
-    # Apply replacements
-    generated_content = template_content
+
+    sl_cfg = None
+    if sl_mode:
+        sl_cfg = build_sl_config(metadata, package_dir)
+        shutil.copy2(_cpp_dir() / "sl_math.h", output_dir / "sl_math.h")
+        shutil.copy2(_cpp_dir() / "sl_math.cpp", output_dir / "sl_math.cc")
+        replacements.update(
+            {
+                '{{P}}': str(sl_cfg["p"]),
+                '{{N_CHOL}}': str(sl_cfg["n_chol"]),
+                '{{SIGMA_EMU_FLAT}}': format_array(
+                    sl_cfg["sigma_emu_flat"], use_double=True
+                ),
+                '{{MODULE_REGISTRATIONS}}': _build_module_registrations(sl_cfg),
+            }
+        )
+        print("Synthetic likelihood capability module")
+
+    generated_content = template_file.read_text()
     for placeholder, value in replacements.items():
         generated_content = generated_content.replace(placeholder, value)
-    
-    # Write generated file
+
     output_file = output_dir / f"{module_name}.cc"
     output_file.write_text(generated_content)
-    
     print(f"Generated: {output_file}")
-    
+
+    _write_build_manifest(output_dir, metadata, sl_cfg)
     return output_file
 
 
@@ -181,36 +228,41 @@ def generate_makefile(metadata, output_dir):
     if not template_file.exists():
         print(f"Error: Makefile template not found: {template_file}")
         sys.exit(1)
-    
-    template_content = template_file.read_text()
-    
-    # Extract information from metadata
+
     module_name = metadata.get('module_name')
     if not module_name:
         print('Error: metadata.json must include module_name')
         sys.exit(1)
-    
-    # Default installation directory
-    install_dir = "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/"
 
+    install_dir = "/usr/lib/x86_64-linux-gnu/JAGS/modules-4/"
     onnx_default = os.environ.get('ONNXRUNTIME_DIR', '')
+    sl_mode = has_capability(metadata, "synthetic_likelihood")
+
+    if sl_mode:
+        sources = f"{module_name}.cc sl_math.cc"
+        sl_include = "-I."
+        extra_cxxflags = ""
+    else:
+        sources = f"{module_name}.cc"
+        sl_include = ""
+        extra_cxxflags = ""
+
     replacements = {
         '{{MODULE_NAME}}': module_name,
         '{{INSTALL_DIR}}': install_dir,
         '{{ONNXRUNTIME_DIR_DEFAULT}}': onnx_default,
+        '{{SOURCES}}': sources,
+        '{{SL_INCLUDE}}': sl_include,
+        '{{EXTRA_CXXFLAGS}}': extra_cxxflags,
     }
-    
-    # Apply replacements
-    generated_content = template_content
+
+    generated_content = template_file.read_text()
     for placeholder, value in replacements.items():
         generated_content = generated_content.replace(placeholder, value)
-    
-    # Write generated file
+
     output_file = output_dir / "Makefile"
     output_file.write_text(generated_content)
-    
     print(f"Generated: {output_file}")
-    
     return output_file
 
 
@@ -218,7 +270,7 @@ def ensure_onnxruntime_in_tmp():
     """Ensure ONNX Runtime is available in tmp directory."""
     tmp_dir = Path('tmp')
     tmp_dir.mkdir(exist_ok=True)
-    
+
     onnx_dir = tmp_dir / 'onnxruntime-linux-x64-1.23.2'
     if not onnx_dir.exists():
         print("ONNX Runtime not found in tmp/, extracting...")
@@ -227,12 +279,11 @@ def ensure_onnxruntime_in_tmp():
             import tarfile
             with tarfile.open(tgz_file, 'r:gz') as tar:
                 tar.extractall(tmp_dir)
-            print(f"✓ ONNX Runtime extracted to {onnx_dir}")
+            print(f"ONNX Runtime extracted to {onnx_dir}")
         else:
-            print("⚠ Warning: ONNX Runtime archive not found in tmp/")
-            print("  You may need to download it manually")
+            print("Warning: ONNX Runtime archive not found in tmp/")
     else:
-        print(f"✓ ONNX Runtime found in {onnx_dir}")
+        print(f"ONNX Runtime found in {onnx_dir}")
 
 
 def main():
@@ -240,10 +291,10 @@ def main():
         print("Usage: ./generate-module <jnnx-directory>")
         print("Example: ./generate-module models/sdt.jnnx/")
         sys.exit(1)
-    
+
     jnnx_dir = sys.argv[1]
-    
-    metadata_file, onnx_file = find_files(jnnx_dir)
+
+    metadata_file, onnx_file, package_dir = find_files(jnnx_dir)
     print("Found files:")
     print(f"  Metadata: {metadata_file}")
     print(f"  ONNX: {onnx_file}")
@@ -252,29 +303,25 @@ def main():
     metadata = load_metadata(metadata_file)
     print(f"Metadata loaded: {metadata.get('model_name', 'unnamed')}")
     print()
-    
-    # Ensure ONNX Runtime is available in tmp/
+
     ensure_onnxruntime_in_tmp()
     print()
-    
-    # Create output directory in tmp/ (per constitution.md)
+
     tmp_dir = Path('tmp')
     tmp_dir.mkdir(exist_ok=True)
     output_dir = tmp_dir / f"{Path(jnnx_dir).name}_build"
     output_dir.mkdir(exist_ok=True)
     print(f"Output directory: {output_dir}")
     print()
-    
-    # Generate module code
+
     print("Generating module code...")
-    module_file = generate_module_code(metadata, onnx_file, output_dir)
+    generate_module_code(metadata, onnx_file, output_dir, package_dir)
     print()
-    
-    # Generate Makefile
+
     print("Generating Makefile...")
-    makefile = generate_makefile(metadata, output_dir)
+    generate_makefile(metadata, output_dir)
     print()
-    
+
     print("=" * 60)
     print("Module generation complete!")
     print()
