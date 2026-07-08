@@ -57,6 +57,22 @@ class TestCapabilities(unittest.TestCase):
         errors = validate_capabilities(meta)
         self.assertTrue(any("capability not declared" in e for e in errors))
 
+    def test_legacy_format_version_warns(self):
+        meta = {
+            "format_version": "1.1.0",
+            "capabilities": ["emulator", "synthetic_likelihood"],
+            "synthetic_likelihood": {"n_summaries": 3},
+        }
+        errors = validate_capabilities(meta)
+        self.assertTrue(any("format_version is deprecated" in e for e in errors))
+
+    def test_legacy_enabled_flag_warns(self):
+        meta = {
+            "synthetic_likelihood": {"enabled": True, "n_summaries": 3},
+        }
+        errors = validate_capabilities(meta)
+        self.assertTrue(any("synthetic_likelihood.enabled is deprecated" in e for e in errors))
+
     def test_validate_sl_package_schema(self):
         with tempfile.TemporaryDirectory() as tmp:
             pkg = Path(tmp)

@@ -1,6 +1,7 @@
 #ifndef JNNX_SL_MATH_H_
 #define JNNX_SL_MATH_H_
 
+#include <functional>
 #include <vector>
 
 namespace jnnx {
@@ -35,6 +36,16 @@ bool omega_total_from_chol(const std::vector<double>& chol_upper, int p,
 double mvn_logdens_precision(const std::vector<double>& x,
                              const std::vector<double>& mu,
                              const std::vector<double>& omega, int p);
+
+/**
+ * Draw x ~ MVN(mu, Omega) where Omega is precision (JAGS dmnorm parameterization).
+ * normal_draw supplies i.i.d. standard normals. Returns false on PD failure.
+ */
+bool mvn_sample_precision(const std::vector<double>& mu,
+                          const std::vector<double>& omega, int p,
+                          const std::function<double()>& normal_draw,
+                          std::vector<double>& x_out,
+                          bool apply_jitter = true);
 
 }  // namespace sl
 }  // namespace jnnx

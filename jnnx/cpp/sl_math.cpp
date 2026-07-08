@@ -1,6 +1,7 @@
 #include "sl_math.h"
 
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <utility>
 
@@ -68,65 +69,71 @@ bool invert_matrix(const std::vector<double>& a, int n, std::vector<double>& inv
     return true;
 }
 
-bool logdet_and_solve(const std::vector<double>& omega, int p,
-                      const std::vector<double>& rhs,
-                      double& logdet_out, std::vector<double>& sol_out) {
-    std::vector<double> a = omega;
-    sol_out = rhs;
-    logdet_out = 0.0;
-
-    for (int col = 0; col < p; ++col) {
-        int pivot = col;
-        double max_val = std::fabs(a[static_cast<size_t>(pivot * p + col)]);
-        for (int row = col + 1; row < p; ++row) {
-            const double val = std::fabs(a[static_cast<size_t>(row * p + col)]);
-            if (val > max_val) {
-                max_val = val;
-                pivot = row;
-            }
-        }
-        if (max_val < 1e-15) {
-            return false;
-        }
-        if (pivot != col) {
-            for (int j = 0; j < p; ++j) {
-                std::swap(a[static_cast<size_t>(pivot * p + j)],
-                          a[static_cast<size_t>(col * p + j)]);
-            }
-            std::swap(sol_out[static_cast<size_t>(pivot)],
-                      sol_out[static_cast<size_t>(col)]);
-            logdet_out -= std::log(max_val);
-        } else {
-            logdet_out -= std::log(max_val);
-        }
-
-        const double diag = a[static_cast<size_t>(col * p + col)];
-        logdet_out += std::log(std::fabs(diag));
-        for (int row = col + 1; row < p; ++row) {
-            const double factor = a[static_cast<size_t>(row * p + col)] / diag;
-            for (int j = col; j < p; ++j) {
-                a[static_cast<size_t>(row * p + j)] -=
-                    factor * a[static_cast<size_t>(col * p + j)];
-            }
-            sol_out[static_cast<size_t>(row)] -= factor * sol_out[static_cast<size_t>(col)];
-        }
-    }
-
-    for (int col = p - 1; col >= 0; --col) {
-        for (int row = 0; row < col; ++row) {
-            sol_out[static_cast<size_t>(row)] -=
-                a[static_cast<size_t>(row * p + col)] * sol_out[static_cast<size_t>(col)];
-        }
-        sol_out[static_cast<size_t>(col)] /=
-            a[static_cast<size_t>(col * p + col)];
-    }
-    return true;
-}
-
 void add_jitter(std::vector<double>& mat, int p) {
     for (int i = 0; i < p; ++i) {
         mat[static_cast<size_t>(i * p + i)] += kJitter;
     }
+}
+
+bool chol_lower_spd(const std::vector<double>& sigma, int p,
+                    std::vector<double>& L_out) {
+    L_out.assign(static_cast<size_t>(p * p), 0.0);
+    for (int i = 0; i < p; ++i) {
+        for (int j = 0; j <= i; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < j; ++k) {
+                sum += L_out[static_cast<size_t>(i * p + k)] *
+                       L_out[static_cast<size_t>(j * p + k)];
+            }
+            if (i == j) {
+                const double diag = sigma[static_cast<size_t>(i * p + i)] - sum;
+                if (diag <= 0.0) {
+                    return false;
+                }
+                L_out[static_cast<size_t>(i * p + j)] = std::sqrt(diag);
+            } else {
+                const double denom = L_out[static_cast<size_t>(j * p + j)];
+                if (std::fabs(denom) < 1e-15) {
+                    return false;
+                }
+                L_out[static_cast<size_t>(i * p + j)] =
+                    (sigma[static_cast<size_t>(i * p + j)] - sum) / denom;
+            }
+        }
+    }
+    return true;
+}
+
+bool chol_logdet_and_solve(const std::vector<double>& omega, int p,
+                           const std::vector<double>& rhs,
+                           double& logdet_out, std::vector<double>& sol_out) {
+    std::vector<double> L;
+    if (!chol_lower_spd(omega, p, L)) {
+        return false;
+    }
+    logdet_out = 0.0;
+    for (int i = 0; i < p; ++i) {
+        logdet_out += 2.0 * std::log(L[static_cast<size_t>(i * p + i)]);
+    }
+
+    std::vector<double> y(static_cast<size_t>(p), 0.0);
+    for (int i = 0; i < p; ++i) {
+        double sum = rhs[static_cast<size_t>(i)];
+        for (int j = 0; j < i; ++j) {
+            sum -= L[static_cast<size_t>(i * p + j)] * y[static_cast<size_t>(j)];
+        }
+        y[static_cast<size_t>(i)] = sum / L[static_cast<size_t>(i * p + i)];
+    }
+
+    sol_out.assign(static_cast<size_t>(p), 0.0);
+    for (int i = p - 1; i >= 0; --i) {
+        double sum = y[static_cast<size_t>(i)];
+        for (int j = i + 1; j < p; ++j) {
+            sum -= L[static_cast<size_t>(j * p + i)] * sol_out[static_cast<size_t>(j)];
+        }
+        sol_out[static_cast<size_t>(i)] = sum / L[static_cast<size_t>(i * p + i)];
+    }
+    return true;
 }
 
 }  // namespace
@@ -221,7 +228,7 @@ double mvn_logdens_precision(const std::vector<double>& x,
 
     double logdet = 0.0;
     std::vector<double> sol;
-    if (!logdet_and_solve(omega_work, p, diff, logdet, sol)) {
+    if (!chol_logdet_and_solve(omega_work, p, diff, logdet, sol)) {
         return -std::numeric_limits<double>::infinity();
     }
 
@@ -230,6 +237,46 @@ double mvn_logdens_precision(const std::vector<double>& x,
         quad += diff[static_cast<size_t>(i)] * sol[static_cast<size_t>(i)];
     }
     return -0.5 * (static_cast<double>(p) * std::log(2.0 * kPi) - logdet + quad);
+}
+
+bool mvn_sample_precision(const std::vector<double>& mu,
+                          const std::vector<double>& omega, int p,
+                          const std::function<double()>& normal_draw,
+                          std::vector<double>& x_out,
+                          bool apply_jitter) {
+    if (!normal_draw || static_cast<int>(mu.size()) < p) {
+        return false;
+    }
+
+    std::vector<double> omega_work = omega;
+    if (apply_jitter) {
+        add_jitter(omega_work, p);
+    }
+
+    std::vector<double> sigma;
+    if (!invert_matrix(omega_work, p, sigma)) {
+        return false;
+    }
+
+    std::vector<double> L;
+    if (!chol_lower_spd(sigma, p, L)) {
+        return false;
+    }
+
+    std::vector<double> z(static_cast<size_t>(p), 0.0);
+    for (int i = 0; i < p; ++i) {
+        z[static_cast<size_t>(i)] = normal_draw();
+    }
+
+    x_out.assign(static_cast<size_t>(p), 0.0);
+    for (int i = 0; i < p; ++i) {
+        double sum = mu[static_cast<size_t>(i)];
+        for (int j = 0; j <= i; ++j) {
+            sum += L[static_cast<size_t>(i * p + j)] * z[static_cast<size_t>(j)];
+        }
+        x_out[static_cast<size_t>(i)] = sum;
+    }
+    return true;
 }
 
 }  // namespace sl

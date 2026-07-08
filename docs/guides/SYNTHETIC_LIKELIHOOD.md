@@ -7,6 +7,7 @@ JNNX packages can declare a `synthetic_likelihood` capability alongside the defa
 - `{function_name}` — emulator alias (e.g. `ddm3mv_emulator`)
 - `{model}_predict` — full flat ONNX output
 - `{model}_mean`, `{model}_omega1`, `{model}_omega_total` — debug/QA nodes
+- **`{model}_logdens`** — scalar log-density debug node (obs components, theta, n_trials)
 - `{distribution_name}` — stochastic synthetic likelihood (e.g. `ddm3mv_sl`)
 
 Existing emulator-only packages (no `capabilities` field) are unchanged.
@@ -38,7 +39,43 @@ obs_std[1:3] ~ dmnorm(pred[1:3], Omega_total[1:3,1:3])
 obs_std[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
 ```
 
-Remove `sigma_emu` from the JAGS data dictionary; it is compiled into the module via `likelihood.json`.
+Remove `sigma_emu` from the JAGS data dictionary; it is compiled into the module via `likelihood.json` at full double precision (recorded in `build_manifest.json` as `sigma_emu_baked`).
+
+## Posterior predictive checks (PPC)
+
+`{distribution_name}` implements `randomSample`, so you can simulate replicates in one line:
+
+```jags
+obs_rep[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
+```
+
+Alternatively, use the debug nodes (same algebra as legacy VPW08 models):
+
+```jags
+mu[1:3] <- ddm3mv_mean(v, a, t0)
+Omega_total[1:3,1:3] <- ddm3mv_omega_total(v, a, t0, n_trials)
+obs_rep[1:3] ~ dmnorm(mu[1:3], Omega_total[1:3,1:3])
+```
+
+Validation test **8.9** checks that `randomSample` returns finite draws.
+
+## Deviance and DIC
+
+JAGS accumulates deviance for custom `ArrayDist` nodes from `logDensity`. For `{name}_sl`, deviance should match the legacy `dmnorm` assembly built from `{name}_mean` and `{name}_omega_total` on identical data (validation test **8.7**). You can monitor `deviance` with the `dic` module when fitting `obs_std ~ {name}_sl(...)`.
+
+## Numerical jitter
+
+C++ `sl_math` adds `1e-10` diagonal jitter before inverting `Sigma_total` and again when evaluating `mvn_logdens_precision`. Python references in `jnnx/sl_reference.py` mirror this contract for validation parity.
+
+## Fixture discovery
+
+`validate-module` searches for `{slug}_sl_regression.json` under:
+
+- `--fixture PATH` (explicit)
+- `$JNNX_FIXTURES_DIR/{slug}_sl_regression.json`
+- `fixtures/` at the JNNX repo root
+- `{package_parent}/fixtures/` (e.g. `models/../fixtures/`)
+- inside the `.jnnx` package directory
 
 ## Reference package
 

@@ -39,6 +39,20 @@ def has_capability(metadata: Dict[str, Any], capability: str) -> bool:
 def validate_capabilities(metadata: Dict[str, Any]) -> List[str]:
     """Validate capability declarations and cross-field requirements."""
     errors: List[str] = []
+
+    if "format_version" in metadata:
+        errors.append(
+            "format_version is deprecated; use capabilities in metadata.json "
+            "(see docs/guides/MIGRATION_v1.1.md)"
+        )
+    sl_block = metadata.get("synthetic_likelihood")
+    if isinstance(sl_block, dict) and sl_block.get("enabled") is True:
+        if "capabilities" not in metadata:
+            errors.append(
+                "synthetic_likelihood.enabled is deprecated; declare "
+                '"capabilities": ["emulator", "synthetic_likelihood"]'
+            )
+
     try:
         caps = get_capabilities(metadata)
     except ValueError as exc:
@@ -105,6 +119,7 @@ def build_sl_config(metadata: Dict[str, Any], package_dir: Path) -> Dict[str, An
         "mean_name": f"{slug}_mean",
         "omega1_name": f"{slug}_omega1",
         "omega_total_name": f"{slug}_omega_total",
+        "logdens_name": f"{slug}_logdens",
         "sigma_emu_flat": flat_sigma,
         "upper_tri_pairs": pairs,
         "debug_exports": {

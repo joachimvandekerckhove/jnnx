@@ -85,6 +85,21 @@ int main() {
     const double logdens = mvn_logdens_precision(x, mu, omega_total, p);
     check(std::isfinite(logdens), "logdens finite");
 
+    const std::vector<double> mu_fix = {
+        1.0079606, 0.23751579, -0.42906004,
+    };
+    const std::vector<double> x_fix = {
+        1.0671409368515015, 0.16290898621082306, -0.584416389465332,
+    };
+    const std::vector<double> omega_fix = {
+        95.72700069428606, 1.278270801862557, -0.9738372362917811,
+        1.2782708018625561, 361.2583126262823, -173.1351542213647,
+        -0.973837236291781, -173.13515422136476, 171.78601558328555,
+    };
+    const double logdens_fix = mvn_logdens_precision(x_fix, mu_fix, omega_fix, p);
+    check(approx_equal(logdens_fix, 4.711718144111194, 1e-5),
+          "fixture case0 logdens");
+
     const auto pairs = upper_tri_index_pairs(p);
     check(pairs.size() == 6U, "upper_tri pairs size");
 

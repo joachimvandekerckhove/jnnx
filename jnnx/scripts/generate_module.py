@@ -99,7 +99,7 @@ def format_array(arr, use_double=False):
             elif val == float('-inf'):
                 formatted.append("-1e38" + suffix)
             else:
-                formatted.append(f"{val:.6f}{suffix}")
+                formatted.append(f"{val:.17g}{suffix}")
 
     return "{" + ", ".join(formatted) + "}"
 
@@ -134,6 +134,9 @@ def _build_module_registrations(sl_cfg):
             f'"{sl_cfg["omega_total_name"]}"));'
         )
     lines.append(
+        f'insert(new LogdensFunction(engine_, "{sl_cfg["logdens_name"]}"));'
+    )
+    lines.append(
         f'insert(new SL_Distribution(engine_, "{sl_cfg["distribution_name"]}"));'
     )
     return "\n        ".join(lines)
@@ -147,6 +150,8 @@ def _write_build_manifest(output_dir, metadata, sl_cfg=None):
     if sl_cfg:
         manifest["onnx_sha256"] = sl_cfg["onnx_sha256"]
         manifest["likelihood_sha256"] = sl_cfg["likelihood_sha256"]
+        manifest["sigma_emu_baked"] = sl_cfg["sigma_emu_flat"]
+        manifest["sl_p"] = sl_cfg["p"]
     (output_dir / "build_manifest.json").write_text(json.dumps(manifest, indent=2))
 
 

@@ -4,11 +4,14 @@
 #include <module/Module.h>
 #include <function/VectorFunction.h>
 #include <function/ArrayFunction.h>
+#include <function/ScalarFunction.h>
 #include <distribution/ArrayDist.h>
+#include <rng/RNG.h>
 #include <onnxruntime_cxx_api.h>
 #include <sl_math.h>
 
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -312,6 +315,67 @@ private:
     std::shared_ptr<OnnxEngine> engine_;
 };
 
+static double sl_logdens_value(const ForwardResult& out, double n_trials,
+                               const std::vector<double>& obs)
+{
+    std::vector<double> sigma(static_cast<size_t>(kP * kP));
+    for (int i = 0; i < kP * kP; ++i) {
+        sigma[static_cast<size_t>(i)] = kSigmaEmu[i];
+    }
+    std::vector<double> omega_total;
+    if (!jnnx::sl::omega_total_from_chol(out.chol_upper, kP, n_trials, sigma, omega_total)) {
+        return -std::numeric_limits<double>::infinity();
+    }
+    return jnnx::sl::mvn_logdens_precision(obs, out.mu, omega_total, kP);
+}
+
+class LogdensFunction : public ScalarFunction
+{
+public:
+    explicit LogdensFunction(std::shared_ptr<OnnxEngine> engine,
+                              std::string const& name)
+        : ScalarFunction(name, kP + kInputDim + 1), engine_(std::move(engine)) {}
+
+    bool checkParameterValue(std::vector<double const*> const& args) const override
+    {
+        if (args.size() != static_cast<size_t>(kP + kInputDim + 1)) {
+            return false;
+        }
+        std::vector<unsigned int> theta_lens(static_cast<size_t>(kInputDim), 1U);
+        std::vector<double const*> theta_args(
+            args.begin() + kP, args.begin() + kP + kInputDim);
+        if (!check_theta_args(theta_args, theta_lens)) {
+            return false;
+        }
+        const double n_trials = *args[static_cast<size_t>(kP + kInputDim)];
+        return std::isfinite(n_trials) && n_trials > 0.0;
+    }
+
+    double evaluate(std::vector<double const*> const& args) const override
+    {
+        try {
+            std::vector<double> obs(static_cast<size_t>(kP));
+            for (int i = 0; i < kP; ++i) {
+                obs[static_cast<size_t>(i)] = *args[static_cast<size_t>(i)];
+            }
+            std::vector<double> theta(static_cast<size_t>(kInputDim));
+            for (int i = 0; i < kInputDim; ++i) {
+                theta[static_cast<size_t>(i)] =
+                    *args[static_cast<size_t>(kP + i)];
+            }
+            const double n_trials = *args[static_cast<size_t>(kP + kInputDim)];
+            const ForwardResult out = engine_->forward(theta);
+            return sl_logdens_value(out, n_trials, obs);
+        } catch (const std::exception& e) {
+            std::cerr << "Error in logdens evaluation: " << e.what() << std::endl;
+            return -std::numeric_limits<double>::infinity();
+        }
+    }
+
+private:
+    std::shared_ptr<OnnxEngine> engine_;
+};
+
 class SL_Distribution : public ArrayDist
 {
 public:
@@ -347,21 +411,11 @@ public:
             }
 #endif
             const double n_trials = *parameters[static_cast<size_t>(kInputDim)];
-            std::vector<double> sigma(static_cast<size_t>(kP * kP));
-            for (int i = 0; i < kP * kP; ++i) {
-                sigma[static_cast<size_t>(i)] = kSigmaEmu[i];
-            }
-            std::vector<double> omega_total;
-            if (!jnnx::sl::omega_total_from_chol(
-                    out.chol_upper, kP, n_trials, sigma, omega_total)) {
-                return -std::numeric_limits<double>::infinity();
-            }
             std::vector<double> obs(static_cast<size_t>(kP));
-            std::vector<double> mu = out.mu;
             for (int i = 0; i < kP; ++i) {
                 obs[static_cast<size_t>(i)] = x[i];
             }
-            return jnnx::sl::mvn_logdens_precision(obs, mu, omega_total, kP);
+            return sl_logdens_value(out, n_trials, obs);
         } catch (const std::exception& e) {
             std::cerr << "Error in SL logDensity: " << e.what() << std::endl;
             return -std::numeric_limits<double>::infinity();
@@ -369,12 +423,52 @@ public:
     }
 
     void randomSample(double* x, unsigned int length,
-                      std::vector<double const*> const&,
-                      std::vector<std::vector<unsigned int>> const&,
-                      double const*, double const*, RNG*) const override
+                      std::vector<double const*> const& parameters,
+                      std::vector<std::vector<unsigned int>> const& dims,
+                      double const*, double const*, RNG* rng) const override
     {
-        for (unsigned int i = 0; i < length; ++i) {
-            x[i] = std::numeric_limits<double>::quiet_NaN();
+        if (length != static_cast<unsigned int>(kP) || rng == nullptr ||
+            !checkParameterValue(parameters, dims)) {
+            for (unsigned int i = 0; i < length; ++i) {
+                x[i] = std::numeric_limits<double>::quiet_NaN();
+            }
+            return;
+        }
+        try {
+            std::vector<double> theta(static_cast<size_t>(kInputDim));
+            for (int i = 0; i < kInputDim; ++i) {
+                theta[static_cast<size_t>(i)] = *parameters[static_cast<size_t>(i)];
+            }
+            const ForwardResult out = engine_->forward(theta);
+            const double n_trials = *parameters[static_cast<size_t>(kInputDim)];
+            std::vector<double> sigma(static_cast<size_t>(kP * kP));
+            for (int i = 0; i < kP * kP; ++i) {
+                sigma[static_cast<size_t>(i)] = kSigmaEmu[i];
+            }
+            std::vector<double> omega_total;
+            if (!jnnx::sl::omega_total_from_chol(
+                    out.chol_upper, kP, n_trials, sigma, omega_total)) {
+                for (unsigned int i = 0; i < length; ++i) {
+                    x[i] = std::numeric_limits<double>::quiet_NaN();
+                }
+                return;
+            }
+            std::vector<double> sample;
+            const std::function<double()> normal_draw = [rng]() { return rng->normal(); };
+            if (!jnnx::sl::mvn_sample_precision(out.mu, omega_total, kP, normal_draw, sample)) {
+                for (unsigned int i = 0; i < length; ++i) {
+                    x[i] = std::numeric_limits<double>::quiet_NaN();
+                }
+                return;
+            }
+            for (int i = 0; i < kP; ++i) {
+                x[static_cast<size_t>(i)] = sample[static_cast<size_t>(i)];
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error in SL randomSample: " << e.what() << std::endl;
+            for (unsigned int i = 0; i < length; ++i) {
+                x[i] = std::numeric_limits<double>::quiet_NaN();
+            }
         }
     }
 

@@ -330,6 +330,10 @@ Rules:
 
 ONNX output layout for SL packages: `[mu_std (p), chol_upper (n_chol)]` with `n_chol = p*(p+1)/2`.
 
+`sigma_emu` from `likelihood.json` is baked into the generated C++ module at full double precision (`{val:.17g}`). The codegen `build_manifest.json` records `sigma_emu_baked` and `sl_p` for validation parity (test 8.5).
+
+Deprecated metadata fields: `format_version` and `synthetic_likelihood.enabled` — use `capabilities` instead (see `docs/guides/MIGRATION_v1.1.md`).
+
 Generated JAGS module symbols (single `.so` per package):
 
 - `{function_name}` — emulator alias (mandatory when SL capability present)

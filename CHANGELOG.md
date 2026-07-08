@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-08
+
+### Fixed
+- **sigma_emu codegen**: emit full double precision (`{val:.17g}`) so baked `kSigmaEmu` matches `likelihood.json`; record `sigma_emu_baked` in `build_manifest.json`
+- **SL 8.5**: validation uses baked sigma from build manifest (fixes 0.139 parity failure)
+- **`mvn_logdens_precision`**: Cholesky-based log-determinant (fixes incorrect JAGS log-density / deviance)
+- **SL 8.6**: split into fixture sanity (8.6a), JAGS `{name}_logdens` parity (8.6b), and legacy node composition (8.6c)
+
+### Added
+- **`randomSample`** on `{name}_sl` for one-line PPC (`obs_rep ~ {name}_sl(...)`); validation test 8.9
+- **`{model}_logdens`** scalar debug node for direct JAGS log-density QA (test 8.6b)
+- **`jnnx/sl_sigma.py`**: helpers to load baked vs sidecar `sigma_emu`
+- Fixture discovery: `--fixture`, `JNNX_FIXTURES_DIR`, `{package_parent}/fixtures/`
+- Validation tests **8.7** (deviance SL vs legacy) and **8.9** (randomSample PPC)
+- Deprecated-schema warnings for `format_version` and `synthetic_likelihood.enabled`
+- Python `sl_reference` jitter contract aligned with C++ (`1e-10`)
+
+### Changed
+- `validate-module` SL suite expanded to sections 8.1–8.9
+- `docs/guides/SYNTHETIC_LIKELIHOOD.md`: PPC recipe, deviance/DIC guidance, fixture paths
+
 ## [1.1.0] - 2026-07-08
 
 ### Added

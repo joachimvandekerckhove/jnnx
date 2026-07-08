@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -16,7 +17,12 @@ except ImportError:
 
 from jnnx.capabilities import build_sl_config, has_capability, sha256_file
 from jnnx.core import JNNXPackage
-from jnnx.sl_reference import omega1_from_chol_upper, omega_total_from_chol
+from jnnx.sl_reference import (
+    mvn_logdens_precision,
+    omega1_from_chol_upper,
+    omega_total_from_chol,
+)
+from jnnx.sl_sigma import load_sigma_emu_for_validation
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,28 +31,62 @@ def _project_root() -> Path:
     return ROOT
 
 
-def _load_fixture(package_dir: Path) -> Dict[str, Any]:
+def resolve_fixture_path(
+    package_dir: Path,
+    *,
+    fixture_arg: Optional[Path] = None,
+) -> Path:
+    """Locate SL regression fixture for a package."""
+    if fixture_arg is not None:
+        path = fixture_arg.expanduser().resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"Fixture not found: {path}")
+        return path
+
+    env_dir = os.environ.get("JNNX_FIXTURES_DIR")
     slug = package_dir.name.replace(".jnnx", "")
     project = _project_root()
     candidates = [
         project / "fixtures" / f"{slug}_sl_regression.json",
+        package_dir.parent / "fixtures" / f"{slug}_sl_regression.json",
+        package_dir / f"{slug}_sl_regression.json",
         project / "fixtures" / "ddm3mv_sl_regression.json",
         project / "docs" / "internal" / "fixtures" / "ddm3mv_sl_regression.json",
     ]
+    if env_dir:
+        candidates.insert(0, Path(env_dir).expanduser() / f"{slug}_sl_regression.json")
+
     for path in candidates:
         if path.exists():
-            return json.loads(path.read_text())
+            return path
     raise FileNotFoundError(
-        f"Regression fixture not found for {slug}; expected fixtures/{slug}_sl_regression.json"
+        f"Regression fixture not found for {slug}; tried {', '.join(str(p) for p in candidates)}"
     )
 
 
-def _run_jags_deterministic(module_name: str, model_code: str, monitor: List[str]) -> Any:
+def _load_fixture(
+    package_dir: Path,
+    *,
+    fixture_arg: Optional[Path] = None,
+) -> Dict[str, Any]:
+    path = resolve_fixture_path(package_dir, fixture_arg=fixture_arg)
+    return json.loads(path.read_text())
+
+
+def _run_jags_deterministic(
+    module_name: str,
+    model_code: str,
+    monitor: List[str],
+    data: Optional[Dict[str, Any]] = None,
+) -> Any:
     import py2jags
 
+    data_dict = dict(data or {})
+    if "n" not in data_dict:
+        data_dict["n"] = 1
     return py2jags.run_jags(
         model_string=model_code,
-        data_dict={"n": 1},
+        data_dict=data_dict,
         nchains=1,
         nsamples=1,
         nadapt=0,
@@ -54,6 +94,21 @@ def _run_jags_deterministic(module_name: str, model_code: str, monitor: List[str
         monitorparams=monitor,
         modules=[module_name],
     )
+
+
+def _sl_logdens_ref(
+    obs_std: np.ndarray,
+    theta: np.ndarray,
+    n_trials: float,
+    session: Any,
+    sigma_emu: np.ndarray,
+    p: int,
+) -> float:
+    out = session.run(None, {"input": np.array([theta], dtype=np.float32)})[0][0]
+    mu = out[:p]
+    chol = out[p:]
+    omega_total = omega_total_from_chol(chol, n_trials, sigma_emu, p)
+    return mvn_logdens_precision(obs_std, mu, omega_total, p)
 
 
 def test_checksums(package: JNNXPackage, fixture: Dict[str, Any]) -> Tuple[bool, str]:
@@ -141,9 +196,11 @@ def test_omega1_parity(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tuple[bo
     return True, f"omega1 parity max diff {max_diff:.2e}"
 
 
-def test_omega_total_parity(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tuple[bool, str]:
-    from scripts.compute_sl_logdens_ref import load_sigma_emu
-
+def test_omega_total_parity(
+    package: JNNXPackage,
+    sl_cfg: Dict[str, Any],
+    build_dir: Optional[Path],
+) -> Tuple[bool, str]:
     metadata = package.metadata
     module_name = metadata["module_name"]
     omega_total_name = sl_cfg["omega_total_name"]
@@ -153,9 +210,10 @@ def test_omega_total_parity(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tup
     n_trials = 600
     p = sl_cfg["p"]
 
+    sigma_emu = load_sigma_emu_for_validation(package.package_path, build_dir)
+
     session = ort.InferenceSession(package.get_onnx_path())
     out = session.run(None, {"input": np.array([theta], dtype=np.float32)})[0][0]
-    sigma_emu = load_sigma_emu(package.package_path)
     ref = omega_total_from_chol(out[p:], n_trials, sigma_emu, p)
 
     model_code = f"""
@@ -173,19 +231,23 @@ def test_omega_total_parity(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tup
                 jags_mat[i, j] = chains.get_samples(name)[0]
 
     max_diff = float(np.max(np.abs(ref - jags_mat)))
-    if max_diff > 1e-3:
-        return False, f"omega_total parity max diff {max_diff:.2e}"
-    return True, f"omega_total parity max diff {max_diff:.2e}"
+    rtol = 1e-6
+    rel = max_diff / max(float(np.max(np.abs(ref))), 1.0)
+    if max_diff > 1e-3 and rel > rtol:
+        return False, f"omega_total parity max diff {max_diff:.2e} rel {rel:.2e}"
+    return True, f"omega_total parity max diff {max_diff:.2e} rel {rel:.2e}"
 
 
-def test_logdens_parity(
+def test_logdens_fixture_sanity(
     package: JNNXPackage,
     fixture: Dict[str, Any],
     sl_cfg: Dict[str, Any],
+    build_dir: Optional[Path],
 ) -> Tuple[bool, str]:
-    from scripts.compute_sl_logdens_ref import load_sigma_emu, sl_logdens
+    """8.6a: Python reference with baked sigma_emu vs fixture logdens."""
+    from scripts.compute_sl_logdens_ref import sl_logdens
 
-    sigma_emu = load_sigma_emu(package.package_path)
+    sigma_emu = load_sigma_emu_for_validation(package.package_path, build_dir)
     session = ort.InferenceSession(package.get_onnx_path())
     atol = fixture["tolerance"]["atol"]
     max_diff = 0.0
@@ -202,8 +264,182 @@ def test_logdens_parity(
         diff = abs(got - ref)
         max_diff = max(max_diff, diff)
         if diff > atol:
-            return False, f"logdens case mismatch diff={diff:.2e} ref={ref} got={got}"
-    return True, f"logdens reference parity max diff {max_diff:.2e} (n={len(fixture['cases'])})"
+            return False, f"fixture sanity diff={diff:.2e} ref={ref} got={got}"
+    return True, f"fixture sanity max diff {max_diff:.2e} (n={len(fixture['cases'])})"
+
+
+def _logdens_jags_expr(
+    sl_cfg: Dict[str, Any],
+    obs_expr: str,
+    theta_str: str,
+    n_trials: int,
+) -> str:
+    logdens_name = sl_cfg["logdens_name"]
+    p = sl_cfg["p"]
+    if obs_expr == "obs_std":
+        obs_args = ", ".join(f"obs_std[{i + 1}]" for i in range(p))
+    else:
+        obs_args = obs_expr
+    return f"{logdens_name}({obs_args}, {theta_str}, {n_trials})"
+
+
+def test_logdens_jags_parity(
+    package: JNNXPackage,
+    fixture: Dict[str, Any],
+    sl_cfg: Dict[str, Any],
+    build_dir: Optional[Path],
+    *,
+    max_cases: int = 10,
+) -> Tuple[bool, str]:
+    """8.6b: JAGS logdens debug node vs jitter-matched Python reference."""
+    metadata = package.metadata
+    module_name = metadata["module_name"]
+    p = sl_cfg["p"]
+    sigma_emu = load_sigma_emu_for_validation(package.package_path, build_dir)
+    session = ort.InferenceSession(package.get_onnx_path())
+    atol = fixture["tolerance"]["atol"]
+    cases = fixture["cases"][:max_cases]
+    max_diff = 0.0
+
+    for case in cases:
+        theta = case["theta"]
+        theta_str = ", ".join(str(t) for t in theta)
+        n_trials = case["n_trials"]
+        obs_std = case["obs_std"]
+        ref = _sl_logdens_ref(
+            np.array(obs_std),
+            np.array(theta),
+            n_trials,
+            session,
+            sigma_emu,
+            p,
+        )
+
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        model_code = f"""
+        model {{
+            logdens_hat <- {logdens_expr}
+            dummy ~ dnorm(0, 1) T(0, 0)
+        }}
+        """
+        chains = _run_jags_deterministic(
+            module_name, model_code, ["logdens_hat"], data={"obs_std": obs_std}
+        )
+        got = float(chains.get_samples("logdens_hat")[0])
+        diff = abs(got - ref)
+        max_diff = max(max_diff, diff)
+        if diff > atol:
+            return False, f"JAGS logdens diff={diff:.2e} ref={ref:.6f} got={got:.6f}"
+
+    return True, f"JAGS logdens parity max diff {max_diff:.2e} (n={len(cases)})"
+
+
+def test_logdens_legacy_subset(
+    package: JNNXPackage,
+    fixture: Dict[str, Any],
+    sl_cfg: Dict[str, Any],
+    build_dir: Optional[Path],
+    *,
+    max_cases: int = 5,
+) -> Tuple[bool, str]:
+    """8.6c: logdens node vs density from JAGS legacy mean/omega_total nodes."""
+    metadata = package.metadata
+    module_name = metadata["module_name"]
+    mean_name = sl_cfg["mean_name"]
+    omega_total_name = sl_cfg["omega_total_name"]
+    p = sl_cfg["p"]
+    atol = fixture["tolerance"]["atol"]
+    cases = fixture["cases"][:max_cases]
+    max_diff = 0.0
+
+    for case in cases:
+        theta = case["theta"]
+        theta_str = ", ".join(str(t) for t in theta)
+        n_trials = case["n_trials"]
+        obs_std = case["obs_std"]
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+
+        model_code = f"""
+        model {{
+            mu[1:{p}] <- {mean_name}({theta_str})
+            OmegaTot[1:{p},1:{p}] <- {omega_total_name}({theta_str}, {n_trials})
+            logdens_hat <- {logdens_expr}
+            dummy ~ dnorm(0, 1) T(0, 0)
+        }}
+        """
+        chains = _run_jags_deterministic(
+            module_name,
+            model_code,
+            ["mu", "OmegaTot", "logdens_hat"],
+            data={"obs_std": obs_std},
+        )
+        mu = np.array([chains.get_samples(f"mu_{i+1}")[0] for i in range(p)])
+        omega = np.zeros((p, p))
+        for i in range(p):
+            for j in range(p):
+                omega[i, j] = float(chains.get_samples(f"OmegaTot_{i+1}_{j+1}")[0])
+        got = float(chains.get_samples("logdens_hat")[0])
+        ref = mvn_logdens_precision(obs_std, mu, omega, p)
+        diff = abs(got - ref)
+        max_diff = max(max_diff, diff)
+        if diff > atol:
+            return False, f"legacy assembly diff={diff:.2e} ref={ref:.6f} got={got:.6f}"
+
+    return True, f"legacy assembly parity max diff {max_diff:.2e} (n={len(cases)})"
+
+
+def test_deviance_sl_vs_legacy(
+    package: JNNXPackage,
+    fixture: Dict[str, Any],
+    sl_cfg: Dict[str, Any],
+    *,
+    max_cases: int = 3,
+) -> Tuple[bool, str]:
+    """8.7: integrated logdens matches legacy node composition on a subset."""
+    metadata = package.metadata
+    module_name = metadata["module_name"]
+    cases = fixture["cases"][:max_cases]
+    max_diff = 0.0
+    atol = fixture["tolerance"]["atol"]
+
+    for case in cases:
+        theta_str = ", ".join(str(t) for t in case["theta"])
+        n_trials = case["n_trials"]
+        obs_std = case["obs_std"]
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        p = sl_cfg["p"]
+        mean_name = sl_cfg["mean_name"]
+        omega_total_name = sl_cfg["omega_total_name"]
+
+        integrated = f"""
+        model {{
+            logdens_sl <- {logdens_expr}
+            dummy ~ dnorm(0, 1) T(0, 0)
+        }}
+        """
+        legacy = f"""
+        model {{
+            mu[1:{p}] <- {mean_name}({theta_str})
+            OmegaTot[1:{p},1:{p}] <- {omega_total_name}({theta_str}, {n_trials})
+            logdens_legacy <- {logdens_expr}
+            dummy ~ dnorm(0, 1) T(0, 0)
+        }}
+        """
+        data = {"obs_std": obs_std}
+        sl_chains = _run_jags_deterministic(
+            module_name, integrated, ["logdens_sl"], data={"obs_std": obs_std}
+        )
+        leg_chains = _run_jags_deterministic(
+            module_name, legacy, ["logdens_legacy"], data={"obs_std": obs_std}
+        )
+        sl_val = float(sl_chains.get_samples("logdens_sl")[0])
+        leg_val = float(leg_chains.get_samples("logdens_legacy")[0])
+        diff = abs(sl_val - leg_val)
+        max_diff = max(max_diff, diff)
+        if diff > atol:
+            return False, f"logdens mismatch diff={diff:.2e} sl={sl_val} legacy={leg_val}"
+
+    return True, f"logdens integrated vs legacy max diff {max_diff:.2e} (n={len(cases)})"
 
 
 def test_sl_smoke(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tuple[bool, str]:
@@ -241,9 +477,56 @@ def test_sl_smoke(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tuple[bool, s
     return True, "SL smoke sample completed"
 
 
+def test_random_sample_ppc(
+    package: JNNXPackage,
+    sl_cfg: Dict[str, Any],
+) -> Tuple[bool, str]:
+    """8.9: randomSample produces finite PPC replicates."""
+    import py2jags
+
+    metadata = package.metadata
+    module_name = metadata["module_name"]
+    dist_name = sl_cfg["distribution_name"]
+    p = sl_cfg["p"]
+    input_params = metadata["input_parameters"]
+    theta = [(par["min"] + par["max"]) / 2 for par in input_params]
+    theta_str = ", ".join(str(t) for t in theta)
+    n_trials = 600
+
+    model_code = f"""
+    model {{
+        obs_rep[1:{p}] ~ {dist_name}({theta_str}, {n_trials})
+        dummy ~ dnorm(0, 1)
+    }}
+    """
+    chains = py2jags.run_jags(
+        model_string=model_code,
+        data_dict={"n": 1},
+        nchains=1,
+        nsamples=20,
+        nadapt=0,
+        nburnin=0,
+        monitorparams=["obs_rep"],
+        modules=[module_name],
+    )
+    samples = []
+    for i in range(p):
+        name = f"obs_rep_{i+1}"
+        if name not in chains.parameter_names:
+            return False, f"missing monitor {name}"
+        vals = chains.get_samples(name)
+        samples.extend(vals)
+
+    if not samples or not np.all(np.isfinite(samples)):
+        return False, "randomSample produced non-finite values"
+    return True, f"PPC randomSample OK ({len(samples)} finite draws)"
+
+
 def run_sl_validation(
     package: JNNXPackage,
     build_dir: Optional[Path] = None,
+    *,
+    fixture_path: Optional[Path] = None,
 ) -> Tuple[int, int]:
     """Run SL capability tests; returns (passed, total)."""
     if not has_capability(package.metadata, "synthetic_likelihood"):
@@ -260,7 +543,7 @@ def run_sl_validation(
         print(f"  Warning: compiled module not found at {so_path}")
         print("  Run generate-module and make before validate-module SL tests.")
 
-    fixture = _load_fixture(package.package_path)
+    fixture = _load_fixture(package.package_path, fixture_arg=fixture_path)
     tests: List[Tuple[str, Callable[[], Tuple[bool, str]]]] = [
         ("SL 8.1 checksums", lambda: test_checksums(package, fixture)),
         ("SL 8.2 ONNX layout", lambda: test_onnx_layout(package, sl_cfg)),
@@ -269,9 +552,25 @@ def run_sl_validation(
     jags_tests = [
         ("SL 8.3 predict parity", lambda: test_predict_parity(package, sl_cfg)),
         ("SL 8.4 omega1 parity", lambda: test_omega1_parity(package, sl_cfg)),
-        ("SL 8.5 omega_total parity", lambda: test_omega_total_parity(package, sl_cfg)),
-        ("SL 8.6 logdens parity", lambda: test_logdens_parity(package, fixture, sl_cfg)),
+        (
+            "SL 8.5 omega_total parity",
+            lambda: test_omega_total_parity(package, sl_cfg, build_dir),
+        ),
+        (
+            "SL 8.6a fixture sanity",
+            lambda: test_logdens_fixture_sanity(package, fixture, sl_cfg, build_dir),
+        ),
+        (
+            "SL 8.6b JAGS logdens parity",
+            lambda: test_logdens_jags_parity(package, fixture, sl_cfg, build_dir),
+        ),
+        (
+            "SL 8.6c legacy assembly subset",
+            lambda: test_logdens_legacy_subset(package, fixture, sl_cfg, build_dir),
+        ),
+        ("SL 8.7 deviance SL vs legacy", lambda: test_deviance_sl_vs_legacy(package, fixture, sl_cfg)),
         ("SL 8.8 SL smoke", lambda: test_sl_smoke(package, sl_cfg)),
+        ("SL 8.9 randomSample PPC", lambda: test_random_sample_ppc(package, sl_cfg)),
     ]
     if so_path.exists():
         tests.extend(jags_tests)

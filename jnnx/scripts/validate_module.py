@@ -13,7 +13,7 @@ Emulator tests (all packages):
 6) Numerical consistency with Python ONNX evaluation
 
 Synthetic-likelihood tests (when capability declared):
-SL 8.1-8.6, 8.8 (requires compiled + installed module)
+SL 8.1-8.9 (requires compiled + installed module)
 """
 
 from __future__ import annotations
@@ -332,6 +332,12 @@ def main() -> None:
         default=None,
         help="Generated build directory (default tmp/<pkg>_build)",
     )
+    parser.add_argument(
+        "--fixture",
+        type=Path,
+        default=None,
+        help="Path to SL regression fixture JSON (overrides search paths)",
+    )
     args = parser.parse_args()
 
     jnnx_dir = args.jnnx_dir.resolve()
@@ -369,7 +375,9 @@ def main() -> None:
         print("Synthetic likelihood validation:")
         package = JNNXPackage(str(jnnx_dir))
         build_dir = args.build_dir or (ROOT / "tmp" / f"{jnnx_dir.name}_build")
-        sl_passed, sl_total = run_sl_validation(package, build_dir)
+        sl_passed, sl_total = run_sl_validation(
+            package, build_dir, fixture_path=args.fixture
+        )
         print()
 
     total_passed = emulator_passed + sl_passed
