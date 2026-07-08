@@ -1,0 +1,64 @@
+{
+  "capabilities": ["emulator", "synthetic_likelihood"],
+  "model_name": "ddm3mv",
+  "module_name": "ddm3mv_emulator",
+  "function_name": "ddm3mv_emulator",
+  "version": "1.0.0",
+  "input_parameters": [
+    {
+      "name": "v",
+      "min": -2.0,
+      "max": 2.0
+    },
+    {
+      "name": "a",
+      "min": 0.5,
+      "max": 2.0
+    },
+    {
+      "name": "t0",
+      "min": 0.15,
+      "max": 0.45
+    }
+  ],
+  "output_parameters": [
+    {"name": "mu_acc", "group": "mean"},
+    {"name": "mu_rt_mean", "group": "mean"},
+    {"name": "mu_rt_var", "group": "mean"},
+    {"name": "chol_1", "group": "chol"},
+    {"name": "chol_2", "group": "chol"},
+    {"name": "chol_3", "group": "chol"},
+    {"name": "chol_4", "group": "chol"},
+    {"name": "chol_5", "group": "chol"},
+    {"name": "chol_6", "group": "chol"}
+  ],
+  "transformations": {
+    "input_transform": "identity",
+    "output_transforms": [
+      "identity",
+      "identity",
+      "identity",
+      "identity",
+      "identity",
+      "identity",
+      "identity",
+      "identity",
+      "identity"
+    ]
+  },
+  "synthetic_likelihood": {
+    "variant": "n_agnostic_cholesky",
+    "n_summaries": 3,
+    "summary_names": ["acc", "rt_mean", "rt_var"],
+    "onnx_layout": "concatenated",
+    "distribution_name": "ddm3mv_sl",
+    "trial_count_arg": "n_trials",
+    "include_sigma_emu": true
+  },
+  "debug_exports": {
+    "predict": true,
+    "mean": true,
+    "omega1": true,
+    "omega_total": true
+  }
+}
