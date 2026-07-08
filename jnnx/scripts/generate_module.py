@@ -99,7 +99,7 @@ def format_array(arr, use_double=False):
             elif val == float('-inf'):
                 formatted.append("-1e38" + suffix)
             else:
-                formatted.append(f"{val:.10g}{suffix}")
+                formatted.append(f"{val:.6f}{suffix}")
 
     return "{" + ", ".join(formatted) + "}"
 
