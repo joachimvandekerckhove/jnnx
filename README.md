@@ -7,7 +7,8 @@ JNNX enables evaluation of trained neural networks (ONNX models) as deterministi
 - **ONNX Model Integration**: Load and evaluate ONNX models directly in JAGS (raw I/O; scaling baked into the ONNX graph)
 - **Automatic Module Generation**: Generate C++ JAGS modules from `.jnnx` packages
 - **Portable scalers**: Support for `scalers.pkl` or `scalers.json`; validation checks raw I/O contract
-- **Validation Suite**: Package validation, module generation, and optional compile/install
+- **Validation Suite**: Package validation, module generation, integrated SL tests in `validate-module`
+- **Synthetic Likelihood capability**: One-line `{name}_sl` JAGS node for dual-head emulators (see `models/ddm3mv.jnnx`)
 - **Multiple Model Support**: Fixed or dynamic batch dimensions; various architectures
 
 ## Installation
@@ -69,7 +70,9 @@ pip install git+https://github.com/joachimvandekerckhove/jnnx.git
 - `jnnx-setup`: Configure and edit .jnnx packages
 - `validate-jnnx`: Validate .jnnx package integrity
 - `generate-module`: Generate C++ JAGS module from .jnnx package
-- `validate-module`: Test compiled JAGS module
+- `validate-module`: Test compiled JAGS module (emulator + synthetic-likelihood when declared)
+
+See [Synthetic Likelihood guide](docs/guides/SYNTHETIC_LIKELIHOOD.md) for the `synthetic_likelihood` capability.
 
 ## Testing
 
