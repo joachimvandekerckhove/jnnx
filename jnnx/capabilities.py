@@ -187,6 +187,13 @@ def build_sl_config(metadata: Dict[str, Any], package_dir: Path) -> Dict[str, An
     model_name = metadata.get("model_name", metadata["module_name"])
     slug = model_name
     debug = metadata.get("debug_exports") or {}
+    obs = load_obs_transform(package_dir)
+    col_codes = [
+        transform_name_to_code(str(name))
+        for name in obs["column_transforms"]
+    ]
+    obs_mean = [float(v) for v in obs["scaler_mean"]]
+    obs_scale = [float(v) for v in obs["scaler_scale"]]
     return {
         "p": p,
         "n_chol": n_chol,
@@ -201,6 +208,15 @@ def build_sl_config(metadata: Dict[str, Any], package_dir: Path) -> Dict[str, An
         "logdens_name": f"{slug}_logdens",
         "sigma_emu_flat": flat_sigma,
         "upper_tri_pairs": pairs,
+        "col_transform_codes": col_codes,
+        "obs_scaler_mean": obs_mean,
+        "obs_scaler_scale": obs_scale,
+        "obs_transform_baked": {
+            "summary_names": obs["summary_names"],
+            "column_transforms": obs["column_transforms"],
+            "scaler_mean": obs_mean,
+            "scaler_scale": obs_scale,
+        },
         "debug_exports": {
             "predict": debug.get("predict", True),
             "mean": debug.get("mean", True),
@@ -209,6 +225,7 @@ def build_sl_config(metadata: Dict[str, Any], package_dir: Path) -> Dict[str, An
         },
         "onnx_sha256": sha256_file(package_dir / "model.onnx"),
         "likelihood_sha256": sha256_file(package_dir / "likelihood.json"),
+        "obs_transform_sha256": sha256_file(package_dir / "obs_transform.json"),
     }
 
 

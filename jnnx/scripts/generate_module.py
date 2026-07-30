@@ -104,6 +104,13 @@ def format_array(arr, use_double=False):
     return "{" + ", ".join(formatted) + "}"
 
 
+def format_int_array(arr):
+    """Format integer list for C++ code generation."""
+    if not arr:
+        return "{}"
+    return "{" + ", ".join(str(int(v)) for v in arr) + "}"
+
+
 def _templates_dir():
     """Directory containing C++/Makefile templates."""
     return Path(__file__).resolve().parent.parent / "templates"
@@ -152,6 +159,8 @@ def _write_build_manifest(output_dir, metadata, sl_cfg=None):
         manifest["likelihood_sha256"] = sl_cfg["likelihood_sha256"]
         manifest["sigma_emu_baked"] = sl_cfg["sigma_emu_flat"]
         manifest["sl_p"] = sl_cfg["p"]
+        manifest["obs_transform_sha256"] = sl_cfg["obs_transform_sha256"]
+        manifest["obs_transform_baked"] = sl_cfg["obs_transform_baked"]
     (output_dir / "build_manifest.json").write_text(json.dumps(manifest, indent=2))
 
 
@@ -209,6 +218,13 @@ def generate_module_code(metadata, onnx_file, output_dir, package_dir):
                 '{{N_CHOL}}': str(sl_cfg["n_chol"]),
                 '{{SIGMA_EMU_FLAT}}': format_array(
                     sl_cfg["sigma_emu_flat"], use_double=True
+                ),
+                '{{COL_TRANSFORM}}': format_int_array(sl_cfg["col_transform_codes"]),
+                '{{OBS_SCALER_MEAN}}': format_array(
+                    sl_cfg["obs_scaler_mean"], use_double=True
+                ),
+                '{{OBS_SCALER_SCALE}}': format_array(
+                    sl_cfg["obs_scaler_scale"], use_double=True
                 ),
                 '{{MODULE_REGISTRATIONS}}': _build_module_registrations(sl_cfg),
             }

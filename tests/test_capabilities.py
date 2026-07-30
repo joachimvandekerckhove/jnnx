@@ -116,6 +116,8 @@ class TestCapabilities(unittest.TestCase):
             cfg = build_sl_config(meta, pkg)
             self.assertEqual(cfg["m_out"], 9)
             self.assertEqual(cfg["distribution_name"], "ddm3mv_sl")
+            self.assertEqual(cfg["col_transform_codes"], [0, 1, 1])
+            self.assertEqual(len(cfg["obs_scaler_mean"]), 3)
 
     def test_sl_package_requires_obs_transform(self):
         with tempfile.TemporaryDirectory() as tmp:
