@@ -699,8 +699,9 @@ class TestGenerateModuleFormatArray(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         build = PROJECT_ROOT / "tmp" / "inf.jnnx_build"
         cc = (build / "testmodel_emulator.cc").read_text()
-        self.assertIn("1e38f", cc)
-        self.assertIn("-1e38f", cc)
+        self.assertIn("1e38", cc)
+        self.assertIn("-1e38", cc)
+        self.assertNotIn("1e38f", cc)
 
 
 # ---------------------------------------------------------------------------

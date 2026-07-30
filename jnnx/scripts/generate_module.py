@@ -200,10 +200,10 @@ def generate_module_code(metadata, onnx_file, output_dir, package_dir):
         '{{INPUT_DIM}}': str(input_dim),
         '{{OUTPUT_DIM}}': str(output_dim),
         '{{ONNX_PATH}}': str(onnx_copy.absolute()),
-        '{{INPUT_MIN}}': format_array(input_min, use_double=sl_mode),
-        '{{INPUT_MAX}}': format_array(input_max, use_double=sl_mode),
-        '{{OUTPUT_MIN}}': format_array(output_min),
-        '{{OUTPUT_MAX}}': format_array(output_max),
+        '{{INPUT_MIN}}': format_array(input_min, use_double=True),
+        '{{INPUT_MAX}}': format_array(input_max, use_double=True),
+        '{{OUTPUT_MIN}}': format_array(output_min, use_double=True),
+        '{{OUTPUT_MAX}}': format_array(output_max, use_double=True),
         '{{BANNER_STRING}}': banner,
     }
 

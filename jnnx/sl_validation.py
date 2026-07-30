@@ -631,7 +631,10 @@ def test_random_sample_ppc(
         if tname == "identity":
             if np.any(col_samples < 0.0) or np.any(col_samples > 1.0):
                 return False, f"PPC acc column out of [0,1] range"
-        elif tname in ("log1p", "log"):
+        elif tname in ("log1p",):
+            if np.any(col_samples < -1.0):
+                return False, f"PPC {tname} column below domain (y >= -1)"
+        elif tname == "log":
             if np.any(col_samples <= 0.0):
                 return False, f"PPC {tname} column has non-positive values"
         elif tname == "sqrt":

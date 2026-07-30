@@ -333,22 +333,22 @@ class JAGSModule:
         
         # Add input/output limits
         if input_params:
-            input_mins = [str(p.get('min', 0)) for p in input_params]
-            input_maxs = [str(p.get('max', 1)) for p in input_params]
+            input_mins = [f"{float(p.get('min', 0)):.17g}" for p in input_params]
+            input_maxs = [f"{float(p.get('max', 1)):.17g}" for p in input_params]
             replacements['{{INPUT_MIN}}'] = '{' + ', '.join(input_mins) + '}'
             replacements['{{INPUT_MAX}}'] = '{' + ', '.join(input_maxs) + '}'
         else:
-            replacements['{{INPUT_MIN}}'] = '{0}'
-            replacements['{{INPUT_MAX}}'] = '{1}'
+            replacements['{{INPUT_MIN}}'] = '{0.0}'
+            replacements['{{INPUT_MAX}}'] = '{1.0}'
         
         if output_params:
-            output_mins = [str(p.get('min', 0)) for p in output_params]
-            output_maxs = [str(p.get('max', 1)) for p in output_params]
+            output_mins = [f"{float(p.get('min', 0)):.17g}" for p in output_params]
+            output_maxs = [f"{float(p.get('max', 1)):.17g}" for p in output_params]
             replacements['{{OUTPUT_MIN}}'] = '{' + ', '.join(output_mins) + '}'
             replacements['{{OUTPUT_MAX}}'] = '{' + ', '.join(output_maxs) + '}'
         else:
-            replacements['{{OUTPUT_MIN}}'] = '{0}'
-            replacements['{{OUTPUT_MAX}}'] = '{1}'
+            replacements['{{OUTPUT_MIN}}'] = '{0.0}'
+            replacements['{{OUTPUT_MAX}}'] = '{1.0}'
         
         # Apply replacements
         code = template
