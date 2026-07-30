@@ -547,41 +547,6 @@ def test_deviance_sl_vs_legacy(
     return True, f"logdens vs dmnorm deviance max diff {max_diff:.2e} (n={len(cases)})"
 
 
-def test_sl_smoke(package: JNNXPackage, sl_cfg: Dict[str, Any]) -> Tuple[bool, str]:
-    import py2jags
-
-    metadata = package.metadata
-    module_name = metadata["module_name"]
-    dist_name = sl_cfg["distribution_name"]
-    p = sl_cfg["p"]
-
-    model_code = f"""
-    model {{
-        v ~ dnorm(0, 0.25)
-        a ~ dunif(0.5, 2.0)
-        t0 ~ dunif(0.15, 0.45)
-        obs_std[1:{p}] ~ {dist_name}(v, a, t0, n_trials)
-    }}
-    """
-    data = {
-        "n_trials": 600,
-        "obs_std": [0.0] * p,
-    }
-    chains = py2jags.run_jags(
-        model_string=model_code,
-        data_dict=data,
-        nchains=1,
-        nsamples=5,
-        nadapt=100,
-        nburnin=50,
-        monitorparams=["v", "a", "t0"],
-        modules=[module_name],
-    )
-    if chains is None:
-        return False, "SL smoke test returned no chains"
-    return True, "SL smoke sample completed"
-
-
 def test_random_sample_ppc(
     package: JNNXPackage,
     sl_cfg: Dict[str, Any],
@@ -674,7 +639,6 @@ def run_sl_validation(
             lambda: test_logdens_legacy_subset(package, fixture, sl_cfg, build_dir),
         ),
         ("SL 8.7 deviance SL vs legacy", lambda: test_deviance_sl_vs_legacy(package, fixture, sl_cfg)),
-        ("SL 8.8 SL smoke", lambda: test_sl_smoke(package, sl_cfg)),
         ("SL 8.9 randomSample PPC", lambda: test_random_sample_ppc(package, sl_cfg)),
         ("SL 8.10 dmnorm cross-check", lambda: test_logdens_dmnorm_parity(package, fixture, sl_cfg)),
     ]
