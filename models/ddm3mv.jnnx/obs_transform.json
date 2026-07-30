@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "summary_names": [
+    "acc",
+    "rt_mean",
+    "rt_var"
+  ],
+  "column_transforms": [
+    "identity",
+    "log1p",
+    "log1p"
+  ],
+  "scaler_mean": [
+    0.82,
+    0.389,
+    -2.61
+  ],
+  "scaler_scale": [
+    0.12,
+    0.195,
+    0.71
+  ]
+}
