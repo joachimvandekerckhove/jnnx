@@ -11,8 +11,9 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from jnnx.sl_reference import mvn_logdens_precision, omega_total_from_chol
+from jnnx.sl_reference import mvn_logdens_precision, obs_raw_to_std, omega_total_from_chol
 from scripts.compute_sl_logdens_ref import sl_logdens, load_sigma_emu
+from jnnx.capabilities import load_obs_transform
 
 try:
     import onnxruntime as ort
@@ -41,11 +42,12 @@ class TestSlMathReference(unittest.TestCase):
         sigma_emu = load_sigma_emu(PACKAGE)
         session = ort.InferenceSession(str(PACKAGE / "model.onnx"))
         logdens = sl_logdens(
-            np.array(case["obs_std"]),
+            np.array(case["obs"]),
             np.array(case["theta"]),
             case["n_trials"],
             session,
             sigma_emu,
+            PACKAGE,
             n=data["n_summaries"],
         )
         self.assertLess(abs(logdens - case["logdens"]), data["tolerance"]["atol"])
@@ -61,13 +63,23 @@ class TestSlMathReference(unittest.TestCase):
         p = data["n_summaries"]
         omega = omega_total_from_chol(out[p:], case["n_trials"], sigma_emu, p)
         mu = out[:p]
+        obs_cfg = load_obs_transform(PACKAGE)
+        obs_std, ok = obs_raw_to_std(
+            case["obs"],
+            obs_cfg["column_transforms"],
+            obs_cfg["scaler_mean"],
+            obs_cfg["scaler_scale"],
+        )
+        self.assertTrue(ok)
         omega_work = np.asarray(omega, dtype=np.float64).copy()
         for i in range(omega_work.shape[0]):
             omega_work[i, i] += 1e-10
-        got = mvn_logdens_precision(case["obs_std"], mu, omega, p)
+        got = mvn_logdens_precision(
+            obs_std, mu, omega, p
+        )
         ref = float(
             multivariate_normal.logpdf(
-                case["obs_std"], mean=mu, cov=np.linalg.inv(omega_work)
+                obs_std, mean=mu, cov=np.linalg.inv(omega_work)
             )
         )
         self.assertLess(abs(got - ref), data["tolerance"]["atol"])

@@ -122,14 +122,27 @@ def onnx_predict(
 
 
 def sl_logdens(
-    obs_std: np.ndarray,
+    obs_raw: np.ndarray,
     theta: np.ndarray,
     n_trials: float,
     session: ort.InferenceSession,
     sigma_emu: np.ndarray,
+    package_dir: Path,
     n: int = N_SUMMARIES,
 ) -> float:
-    """Integrated synthetic-likelihood log-density at standardized summaries."""
+    """Integrated synthetic-likelihood log-density at raw physical summaries."""
+    from jnnx.capabilities import load_obs_transform
+    from jnnx.sl_reference import obs_raw_to_std
+
+    obs_cfg = load_obs_transform(package_dir)
+    obs_std, ok = obs_raw_to_std(
+        obs_raw,
+        obs_cfg["column_transforms"],
+        obs_cfg["scaler_mean"],
+        obs_cfg["scaler_scale"],
+    )
+    if not ok:
+        return float("-inf")
     mu_std, chol_upper = onnx_predict(session, theta, n)
     omega_total = omega_total_from_chol(chol_upper, n_trials, sigma_emu, n)
     return mvn_logdens_precision(obs_std, mu_std, omega_total, n)
@@ -199,13 +212,15 @@ def build_regression_cases(
         summaries = model.simulate_summaries(theta, n_trials, 10_000 + len(rows))
         if not np.all(np.isfinite(summaries)):
             continue
-        obs_std = transform.transform(summaries.reshape(1, -1))[0]
-        logdens = sl_logdens(obs_std, theta, n_trials, session, sigma_emu, n=n)
+        obs_raw = summaries.reshape(-1)
+        logdens = sl_logdens(
+            obs_raw, theta, n_trials, session, sigma_emu, package_dir, n=n
+        )
         rows.append(
             {
                 "theta": theta.tolist(),
                 "n_trials": n_trials,
-                "obs_std": obs_std.tolist(),
+                "obs": obs_raw.tolist(),
                 "logdens": logdens,
             }
         )
@@ -221,7 +236,7 @@ def write_fixture(path: Path, package_dir: Path, rows: list[dict]) -> None:
     onnx_bytes = (package_dir / "model.onnx").read_bytes()
 
     payload = {
-        "version": "1.0",
+        "version": "2.0",
         "slug": "ddm3mv",
         "package_path": str(package_dir.relative_to(ROOT))
         if package_dir.is_relative_to(ROOT)
@@ -234,6 +249,9 @@ def write_fixture(path: Path, package_dir: Path, rows: list[dict]) -> None:
         "onnx_sha256": hashlib.sha256(onnx_bytes).hexdigest(),
         "likelihood_sha256": hashlib.sha256(
             (package_dir / "likelihood.json").read_bytes()
+        ).hexdigest(),
+        "obs_transform_sha256": hashlib.sha256(
+            (package_dir / "obs_transform.json").read_bytes()
         ).hexdigest(),
         "tolerance": {"atol": 1e-4, "rtol": 1e-5},
         "cases": rows,
@@ -261,11 +279,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-trials", type=float, help="Trial count N")
     parser.add_argument(
+        "--obs",
+        type=float,
+        nargs=3,
+        metavar=("O1", "O2", "O3"),
+        help="Observed raw physical summary vector",
+    )
+    parser.add_argument(
         "--obs-std",
         type=float,
         nargs=3,
         metavar=("S1", "S2", "S3"),
-        help="Observed standardized summary vector",
+        help="(deprecated) use --obs for raw physical summaries",
     )
     parser.add_argument(
         "--write-fixture",
@@ -302,24 +327,39 @@ def main() -> None:
         write_fixture(args.write_fixture.resolve(), package_dir, rows)
         return
 
-    if args.theta is None or args.n_trials is None or args.obs_std is None:
+    obs_arg = args.obs if args.obs is not None else args.obs_std
+    if args.theta is None or args.n_trials is None or obs_arg is None:
         raise SystemExit(
-            "Provide --theta, --n-trials, and --obs-std, or use --write-fixture"
+            "Provide --theta, --n-trials, and --obs, or use --write-fixture"
         )
 
     n = load_n_summaries(package_dir)
     sigma_emu = load_sigma_emu(package_dir)
     session = ort.InferenceSession(str(package_dir / "model.onnx"))
     theta = np.array(args.theta, dtype=np.float64)
-    obs_std = np.array(args.obs_std, dtype=np.float64)
+    obs_raw = np.array(obs_arg, dtype=np.float64)
 
     if args.decomposed:
+        from jnnx.capabilities import load_obs_transform
+        from jnnx.sl_reference import obs_raw_to_std
+
+        obs_cfg = load_obs_transform(package_dir)
+        obs_std, ok = obs_raw_to_std(
+            obs_raw,
+            obs_cfg["column_transforms"],
+            obs_cfg["scaler_mean"],
+            obs_cfg["scaler_scale"],
+        )
+        if not ok:
+            raise SystemExit("invalid raw observation for transform")
         result = sl_logdens_decomposed(
             obs_std, theta, args.n_trials, session, sigma_emu, n=n
         )
         print(json.dumps(_jsonify(result), indent=2))
     else:
-        logdens = sl_logdens(obs_std, theta, args.n_trials, session, sigma_emu, n=n)
+        logdens = sl_logdens(
+            obs_raw, theta, args.n_trials, session, sigma_emu, package_dir, n=n
+        )
         print(f"logdens = {logdens:.12f}")
 
 

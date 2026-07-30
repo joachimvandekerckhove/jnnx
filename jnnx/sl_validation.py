@@ -19,6 +19,7 @@ from jnnx.capabilities import build_sl_config, has_capability, sha256_file
 from jnnx.core import JNNXPackage
 from jnnx.sl_reference import (
     mvn_logdens_precision,
+    obs_raw_to_std,
     omega1_from_chol_upper,
     omega_total_from_chol,
 )
@@ -103,14 +104,36 @@ def _run_jags_deterministic(
     )
 
 
+def _obs_transform_args(sl_cfg: Dict[str, Any]) -> Tuple[List[str], List[float], List[float]]:
+    baked = sl_cfg["obs_transform_baked"]
+    return (
+        list(baked["column_transforms"]),
+        list(baked["scaler_mean"]),
+        list(baked["scaler_scale"]),
+    )
+
+
+def _raw_to_std(
+    obs_raw: Sequence[float],
+    sl_cfg: Dict[str, Any],
+) -> Tuple[np.ndarray, bool]:
+    transforms, mean, scale = _obs_transform_args(sl_cfg)
+    return obs_raw_to_std(obs_raw, transforms, mean, scale)
+
+
 def _scipy_mvn_logpdf(
-    obs_std: Sequence[float],
+    obs_raw: Sequence[float],
     mu: np.ndarray,
     omega: np.ndarray,
+    sl_cfg: Dict[str, Any],
 ) -> float:
     from scipy.stats import multivariate_normal
 
     from jnnx.sl_reference import JITTER
+
+    obs_std, ok = _raw_to_std(obs_raw, sl_cfg)
+    if not ok:
+        raise ValueError("invalid raw observation for transform")
 
     omega_work = np.asarray(omega, dtype=np.float64).copy()
     p = omega_work.shape[0]
@@ -119,7 +142,7 @@ def _scipy_mvn_logpdf(
     cov = np.linalg.inv(omega_work)
     return float(
         multivariate_normal.logpdf(
-            np.asarray(obs_std, dtype=np.float64),
+            obs_std,
             mean=np.asarray(mu, dtype=np.float64),
             cov=cov,
             allow_singular=False,
@@ -152,13 +175,17 @@ def _fetch_mu_omega_jags(
 
 
 def _sl_logdens_ref(
-    obs_std: np.ndarray,
+    obs_raw: np.ndarray,
     theta: np.ndarray,
     n_trials: float,
     session: Any,
     sigma_emu: np.ndarray,
+    sl_cfg: Dict[str, Any],
     p: int,
 ) -> float:
+    obs_std, ok = _raw_to_std(obs_raw, sl_cfg)
+    if not ok:
+        return float("-inf")
     out = session.run(None, {"input": np.array([theta], dtype=np.float32)})[0][0]
     mu = out[:p]
     chol = out[p:]
@@ -169,10 +196,13 @@ def _sl_logdens_ref(
 def test_checksums(package: JNNXPackage, fixture: Dict[str, Any]) -> Tuple[bool, str]:
     onnx_h = sha256_file(package.package_path / "model.onnx")
     like_h = package.get_likelihood_sha256()
+    obs_h = sha256_file(package.package_path / "obs_transform.json")
     if onnx_h != fixture.get("onnx_sha256"):
         return False, "onnx_sha256 mismatch (stale fixture or package)"
     if like_h != fixture.get("likelihood_sha256"):
         return False, "likelihood_sha256 mismatch (stale sidecar or package)"
+    if obs_h != fixture.get("obs_transform_sha256"):
+        return False, "obs_transform_sha256 mismatch (stale sidecar or package)"
     return True, "checksums OK"
 
 
@@ -309,11 +339,12 @@ def test_logdens_fixture_sanity(
     for case in fixture["cases"]:
         ref = case["logdens"]
         got = sl_logdens(
-            np.array(case["obs_std"]),
+            np.array(case["obs"]),
             np.array(case["theta"]),
             case["n_trials"],
             session,
             sigma_emu,
+            package.package_path,
             n=sl_cfg["p"],
         )
         diff = abs(got - ref)
@@ -331,8 +362,8 @@ def _logdens_jags_expr(
 ) -> str:
     logdens_name = sl_cfg["logdens_name"]
     p = sl_cfg["p"]
-    if obs_expr == "obs_std":
-        obs_args = ", ".join(f"obs_std[{i + 1}]" for i in range(p))
+    if obs_expr == "obs":
+        obs_args = ", ".join(f"obs[{i + 1}]" for i in range(p))
     else:
         obs_args = obs_expr
     return f"{logdens_name}({obs_args}, {theta_str}, {n_trials})"
@@ -360,17 +391,18 @@ def test_logdens_jags_parity(
         theta = case["theta"]
         theta_str = ", ".join(str(t) for t in theta)
         n_trials = case["n_trials"]
-        obs_std = case["obs_std"]
+        obs = case["obs"]
         ref = _sl_logdens_ref(
-            np.array(obs_std),
+            np.array(obs),
             np.array(theta),
             n_trials,
             session,
             sigma_emu,
+            sl_cfg,
             p,
         )
 
-        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs", theta_str, n_trials)
         model_code = f"""
         model {{
             logdens_hat <- {logdens_expr}
@@ -378,7 +410,7 @@ def test_logdens_jags_parity(
         }}
         """
         chains = _run_jags_deterministic(
-            module_name, model_code, ["logdens_hat"], data={"obs_std": obs_std}
+            module_name, model_code, ["logdens_hat"], data={"obs": obs}
         )
         got = float(chains.get_samples("logdens_hat")[0])
         diff = abs(got - ref)
@@ -412,13 +444,13 @@ def test_logdens_legacy_subset(
         theta = case["theta"]
         theta_str = ", ".join(str(t) for t in theta)
         n_trials = case["n_trials"]
-        obs_std = case["obs_std"]
+        obs = case["obs"]
         mu, omega = _fetch_mu_omega_jags(
             module_name, mean_name, omega_total_name, theta_str, n_trials, p
         )
-        ref = _scipy_mvn_logpdf(obs_std, mu, omega)
+        ref = _scipy_mvn_logpdf(obs, mu, omega, sl_cfg)
 
-        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs", theta_str, n_trials)
         model_code = f"""
         model {{
             logdens_hat <- {logdens_expr}
@@ -426,7 +458,7 @@ def test_logdens_legacy_subset(
         }}
         """
         chains = _run_jags_deterministic(
-            module_name, model_code, ["logdens_hat"], data={"obs_std": obs_std}
+            module_name, model_code, ["logdens_hat"], data={"obs": obs}
         )
         got = float(chains.get_samples("logdens_hat")[0])
         diff = abs(got - ref)
@@ -459,13 +491,13 @@ def test_logdens_dmnorm_parity(
     for case in cases:
         theta_str = ", ".join(str(t) for t in case["theta"])
         n_trials = case["n_trials"]
-        obs_std = case["obs_std"]
+        obs = case["obs"]
         mu, omega = _fetch_mu_omega_jags(
             module_name, mean_name, omega_total_name, theta_str, n_trials, p
         )
-        ref = _scipy_mvn_logpdf(obs_std, mu, omega)
+        ref = _scipy_mvn_logpdf(obs, mu, omega, sl_cfg)
 
-        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs", theta_str, n_trials)
         model_code = f"""
         model {{
             logdens_hat <- {logdens_expr}
@@ -473,7 +505,7 @@ def test_logdens_dmnorm_parity(
         }}
         """
         chains = _run_jags_deterministic(
-            module_name, model_code, ["logdens_hat"], data={"obs_std": obs_std}
+            module_name, model_code, ["logdens_hat"], data={"obs": obs}
         )
         got = float(chains.get_samples("logdens_hat")[0])
         diff = abs(got - ref)
@@ -505,8 +537,11 @@ def test_deviance_sl_vs_legacy(
     for case in cases:
         theta_str = ", ".join(str(t) for t in case["theta"])
         n_trials = case["n_trials"]
-        obs_std = case["obs_std"]
-        logdens_expr = _logdens_jags_expr(sl_cfg, "obs_std", theta_str, n_trials)
+        obs = case["obs"]
+        obs_std, ok = _raw_to_std(obs, sl_cfg)
+        if not ok:
+            return False, "invalid raw obs in deviance test case"
+        logdens_expr = _logdens_jags_expr(sl_cfg, "obs", theta_str, n_trials)
 
         sl_model = f"""
         model {{
@@ -522,15 +557,14 @@ def test_deviance_sl_vs_legacy(
             dummy ~ dnorm(0, 1) T(0, 0)
         }}
         """
-        data = {"obs_std": obs_std}
         sl_chains = _run_jags_deterministic(
-            module_name, sl_model, ["logdens_sl"], data=data
+            module_name, sl_model, ["logdens_sl"], data={"obs": obs}
         )
         leg_chains = _run_jags_deterministic(
             module_name,
             legacy_model,
             ["deviance"],
-            data=data,
+            data={"obs_std": obs_std.tolist()},
             extra_modules=["dic"],
         )
         sl_val = float(sl_chains.get_samples("logdens_sl")[0])
@@ -589,7 +623,36 @@ def test_random_sample_ppc(
 
     if not samples or not np.all(np.isfinite(samples)):
         return False, "randomSample produced non-finite values"
-    return True, f"PPC randomSample OK ({len(samples)} finite draws)"
+
+    transforms, _, _ = _obs_transform_args(sl_cfg)
+    for i in range(p):
+        col_samples = chains.get_samples(f"obs_rep_{i+1}")
+        tname = transforms[i]
+        if tname == "identity":
+            if np.any(col_samples < 0.0) or np.any(col_samples > 1.0):
+                return False, f"PPC acc column out of [0,1] range"
+        elif tname in ("log1p", "log"):
+            if np.any(col_samples <= 0.0):
+                return False, f"PPC {tname} column has non-positive values"
+        elif tname == "sqrt":
+            if np.any(col_samples < 0.0):
+                return False, "PPC sqrt column has negative values"
+
+    return True, f"PPC randomSample OK ({len(samples)} finite raw draws)"
+
+
+def test_logdens_raw_obs_parity(
+    package: JNNXPackage,
+    fixture: Dict[str, Any],
+    sl_cfg: Dict[str, Any],
+    build_dir: Optional[Path],
+    *,
+    max_cases: int = 10,
+) -> Tuple[bool, str]:
+    """8.11: raw obs through Python transform matches JAGS logdens on raw inputs."""
+    return test_logdens_jags_parity(
+        package, fixture, sl_cfg, build_dir, max_cases=max_cases
+    )
 
 
 def run_sl_validation(
@@ -640,6 +703,10 @@ def run_sl_validation(
         ),
         ("SL 8.7 deviance SL vs legacy", lambda: test_deviance_sl_vs_legacy(package, fixture, sl_cfg)),
         ("SL 8.9 randomSample PPC", lambda: test_random_sample_ppc(package, sl_cfg)),
+        (
+            "SL 8.11 raw obs logdens parity",
+            lambda: test_logdens_raw_obs_parity(package, fixture, sl_cfg, build_dir),
+        ),
         ("SL 8.10 dmnorm cross-check", lambda: test_logdens_dmnorm_parity(package, fixture, sl_cfg)),
     ]
     if so_path.exists():
