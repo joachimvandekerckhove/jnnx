@@ -263,5 +263,114 @@ bool mvn_sample_precision(const std::vector<double>& mu,
     return true;
 }
 
+namespace {
+
+bool forward_column(JnnxTransform t, double y, double& z_out) {
+    switch (t) {
+        case kIdentity:
+            if (!std::isfinite(y)) {
+                return false;
+            }
+            z_out = y;
+            return true;
+        case kLog1p:
+            if (!std::isfinite(y) || y < -1.0) {
+                return false;
+            }
+            z_out = std::log1p(y);
+            return std::isfinite(z_out);
+        case kLog:
+            if (!std::isfinite(y) || y <= 0.0) {
+                return false;
+            }
+            z_out = std::log(y);
+            return std::isfinite(z_out);
+        case kSqrt:
+            if (!std::isfinite(y) || y < 0.0) {
+                return false;
+            }
+            z_out = std::sqrt(y);
+            return std::isfinite(z_out);
+        default:
+            return false;
+    }
+}
+
+bool inverse_column(JnnxTransform t, double z, double& y_out) {
+    switch (t) {
+        case kIdentity:
+            if (!std::isfinite(z)) {
+                return false;
+            }
+            y_out = z;
+            return true;
+        case kLog1p:
+            if (!std::isfinite(z)) {
+                return false;
+            }
+            y_out = std::expm1(z);
+            return std::isfinite(y_out) && y_out >= -1.0;
+        case kLog:
+            if (!std::isfinite(z)) {
+                return false;
+            }
+            y_out = std::exp(z);
+            return std::isfinite(y_out) && y_out > 0.0;
+        case kSqrt:
+            if (!std::isfinite(z)) {
+                return false;
+            }
+            y_out = z * z;
+            return std::isfinite(y_out) && y_out >= 0.0;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
+bool obs_raw_to_std(const double* raw, double* std_out, int p,
+                    const int* transforms,
+                    const double* mean, const double* scale) {
+    if (!raw || !std_out || !transforms || !mean || !scale || p <= 0) {
+        return false;
+    }
+    for (int j = 0; j < p; ++j) {
+        if (scale[j] == 0.0 || !std::isfinite(scale[j]) || !std::isfinite(mean[j])) {
+            return false;
+        }
+        double z = 0.0;
+        if (!forward_column(static_cast<JnnxTransform>(transforms[j]), raw[j], z)) {
+            return false;
+        }
+        std_out[j] = (z - mean[j]) / scale[j];
+        if (!std::isfinite(std_out[j])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool obs_std_to_raw(const double* std_in, double* raw_out, int p,
+                    const int* transforms,
+                    const double* mean, const double* scale) {
+    if (!std_in || !raw_out || !transforms || !mean || !scale || p <= 0) {
+        return false;
+    }
+    for (int j = 0; j < p; ++j) {
+        if (scale[j] == 0.0 || !std::isfinite(scale[j]) || !std::isfinite(mean[j])) {
+            return false;
+        }
+        const double z = std_in[j] * scale[j] + mean[j];
+        if (!std::isfinite(z)) {
+            return false;
+        }
+        if (!inverse_column(static_cast<JnnxTransform>(transforms[j]), z, raw_out[j])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace sl
 }  // namespace jnnx

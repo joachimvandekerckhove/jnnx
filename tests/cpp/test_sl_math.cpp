@@ -35,7 +35,13 @@ std::vector<double> matmul(const std::vector<double>& a, const std::vector<doubl
 
 int main() {
     using jnnx::sl::assemble_L;
+    using jnnx::sl::kIdentity;
+    using jnnx::sl::kLog;
+    using jnnx::sl::kLog1p;
+    using jnnx::sl::kSqrt;
     using jnnx::sl::mvn_logdens_precision;
+    using jnnx::sl::obs_raw_to_std;
+    using jnnx::sl::obs_std_to_raw;
     using jnnx::sl::omega1_from_chol;
     using jnnx::sl::omega_total_from_chol;
     using jnnx::sl::upper_tri_index_pairs;
@@ -102,6 +108,44 @@ int main() {
 
     const auto pairs = upper_tri_index_pairs(p);
     check(pairs.size() == 6U, "upper_tri pairs size");
+
+    {
+        const int transforms[3] = {kIdentity, kLog1p, kLog1p};
+        const double mean[3] = {0.8, 0.4, -2.0};
+        const double scale[3] = {0.1, 0.2, 0.7};
+        const double raw[3] = {0.75, 0.5, 0.25};
+        double std_out[3] = {0.0, 0.0, 0.0};
+        double roundtrip[3] = {0.0, 0.0, 0.0};
+        check(obs_raw_to_std(raw, std_out, 3, transforms, mean, scale),
+              "obs_raw_to_std mixed");
+        check(obs_std_to_raw(std_out, roundtrip, 3, transforms, mean, scale),
+              "obs_std_to_raw mixed");
+        for (int i = 0; i < 3; ++i) {
+            check(approx_equal(raw[i], roundtrip[i], 1e-12), "obs roundtrip");
+        }
+    }
+
+    {
+        const int transforms[1] = {kLog};
+        const double mean[1] = {0.0};
+        const double scale[1] = {1.0};
+        const double raw_bad[1] = {-1.0};
+        double std_out[1] = {0.0};
+        check(!obs_raw_to_std(raw_bad, std_out, 1, transforms, mean, scale),
+              "log domain rejects non-positive");
+    }
+
+    {
+        const int transforms[1] = {kSqrt};
+        const double mean[1] = {0.0};
+        const double scale[1] = {1.0};
+        const double raw[1] = {4.0};
+        double std_out[1] = {0.0};
+        double back[1] = {0.0};
+        check(obs_raw_to_std(raw, std_out, 1, transforms, mean, scale), "sqrt forward");
+        check(obs_std_to_raw(std_out, back, 1, transforms, mean, scale), "sqrt inverse");
+        check(approx_equal(raw[0], back[0], 1e-12), "sqrt roundtrip");
+    }
 
     if (failures == 0) {
         std::cout << "All sl_math tests passed." << std::endl;

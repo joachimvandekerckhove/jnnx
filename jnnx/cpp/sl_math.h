@@ -7,6 +7,14 @@
 namespace jnnx {
 namespace sl {
 
+/** Nonlinear column transform codes (baked from obs_transform.json). */
+enum JnnxTransform : int {
+    kIdentity = 0,
+    kLog1p = 1,
+    kLog = 2,
+    kSqrt = 3,
+};
+
 /** Row-major upper-triangle index pairs for dimension p. */
 std::vector<std::pair<int, int>> upper_tri_index_pairs(int p);
 
@@ -46,6 +54,21 @@ bool mvn_sample_precision(const std::vector<double>& mu,
                           const std::function<double()>& normal_draw,
                           std::vector<double>& x_out,
                           bool apply_jitter = true);
+
+/**
+ * Forward observation transform: raw physical summaries -> standardized space.
+ * transforms[j] is a JnnxTransform code; mean/scale are StandardScaler params.
+ */
+bool obs_raw_to_std(const double* raw, double* std_out, int p,
+                    const int* transforms,
+                    const double* mean, const double* scale);
+
+/**
+ * Inverse observation transform: standardized space -> raw physical summaries.
+ */
+bool obs_std_to_raw(const double* std_in, double* raw_out, int p,
+                    const int* transforms,
+                    const double* mean, const double* scale);
 
 }  // namespace sl
 }  // namespace jnnx
