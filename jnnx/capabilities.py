@@ -10,6 +10,14 @@ from typing import Any, Dict, List, Tuple
 KNOWN_CAPABILITIES = frozenset({"emulator", "synthetic_likelihood"})
 DEFAULT_CAPABILITIES = ["emulator"]
 
+# Column nonlinear transforms for obs_transform.json (v2.0)
+KNOWN_TRANSFORMS = {
+    "identity": 0,
+    "log1p": 1,
+    "log": 2,
+    "sqrt": 3,
+}
+
 
 def get_capabilities(metadata: Dict[str, Any]) -> List[str]:
     """Return normalized capability list; absent field defaults to emulator-only."""
@@ -81,6 +89,77 @@ def load_likelihood(package_dir: Path) -> Dict[str, Any]:
         raise FileNotFoundError(f"likelihood.json not found in {package_dir}")
     with open(path, "r") as f:
         return json.load(f)
+
+
+def load_obs_transform(package_dir: Path) -> Dict[str, Any]:
+    path = package_dir / "obs_transform.json"
+    if not path.exists():
+        raise FileNotFoundError(f"obs_transform.json not found in {package_dir}")
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def validate_obs_transform(
+    obs: Dict[str, Any],
+    *,
+    n_summaries: int,
+) -> List[str]:
+    """Validate obs_transform.json content."""
+    errors: List[str] = []
+    required = ("version", "summary_names", "column_transforms", "scaler_mean", "scaler_scale")
+    for field in required:
+        if field not in obs:
+            errors.append(f"Missing obs_transform.json field: {field}")
+
+    names = obs.get("summary_names")
+    transforms = obs.get("column_transforms")
+    mean = obs.get("scaler_mean")
+    scale = obs.get("scaler_scale")
+
+    if not isinstance(names, list) or not names:
+        errors.append("obs_transform.summary_names must be a non-empty list")
+        return errors
+
+    p = len(names)
+    if p != n_summaries:
+        errors.append(
+            f"obs_transform.summary_names length {p} != n_summaries {n_summaries}"
+        )
+
+    for label, arr in (
+        ("column_transforms", transforms),
+        ("scaler_mean", mean),
+        ("scaler_scale", scale),
+    ):
+        if not isinstance(arr, list):
+            errors.append(f"obs_transform.{label} must be a list")
+            continue
+        if len(arr) != p:
+            errors.append(f"obs_transform.{label} length must be {p}, got {len(arr)}")
+
+    if isinstance(transforms, list):
+        for i, name in enumerate(transforms):
+            if not isinstance(name, str) or name not in KNOWN_TRANSFORMS:
+                errors.append(
+                    f"obs_transform.column_transforms[{i}] unknown transform: {name!r} "
+                    f"(known: {sorted(KNOWN_TRANSFORMS)})"
+                )
+
+    if isinstance(scale, list):
+        for i, s in enumerate(scale):
+            try:
+                if float(s) == 0.0:
+                    errors.append(f"obs_transform.scaler_scale[{i}] must be non-zero")
+            except (TypeError, ValueError):
+                errors.append(f"obs_transform.scaler_scale[{i}] must be numeric")
+
+    return errors
+
+
+def transform_name_to_code(name: str) -> int:
+    if name not in KNOWN_TRANSFORMS:
+        raise ValueError(f"unknown transform: {name!r}")
+    return KNOWN_TRANSFORMS[name]
 
 
 def upper_tri_index_pairs(p: int) -> List[Tuple[int, int]]:
@@ -177,5 +256,15 @@ def validate_sl_package(metadata: Dict[str, Any], package_dir: Path) -> List[str
                         errors.append("sigma_emu must be p x p in likelihood.json")
             except (json.JSONDecodeError, KeyError, TypeError) as exc:
                 errors.append(f"Invalid likelihood.json: {exc}")
+
+    obs_path = package_dir / "obs_transform.json"
+    if not obs_path.exists():
+        errors.append("obs_transform.json required for synthetic_likelihood packages (v2.0)")
+    elif p is not None:
+        try:
+            obs = load_obs_transform(package_dir)
+            errors.extend(validate_obs_transform(obs, n_summaries=int(p)))
+        except json.JSONDecodeError as exc:
+            errors.append(f"Invalid obs_transform.json: {exc}")
 
     return errors
