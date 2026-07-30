@@ -1,12 +1,12 @@
 # JNNX — JAGS Neural Network eXchange
 
-JNNX turns trained neural emulators into JAGS modules. The primary workflow is **synthetic likelihood (SL)**: export a dual-head ONNX model, package it as a `.jnnx` bundle, compile one shared library, and fit standardized summary statistics in JAGS with a single stochastic node — for example `obs_std[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)`.
+JNNX turns trained neural emulators into JAGS modules. The primary workflow is **synthetic likelihood (SL)**: export a dual-head ONNX model, package it as a `.jnnx` bundle, compile one shared library, and fit **raw physical summary statistics** in JAGS with a single stochastic node — for example `obs[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)`. Observation scaling (column transforms + StandardScaler) is baked from `obs_transform.json` into the compiled module.
 
 Emulator-only packages (deterministic vector functions) remain supported for backward compatibility.
 
 ## Features
 
-- **One-line synthetic likelihood** — `{name}_sl` stochastic node with built-in MVN log-density, debiased `sigma_emu`, and `n_trials` scaling
+- **One-line synthetic likelihood** — `{name}_sl` stochastic node with built-in MVN log-density, debiased `sigma_emu`, `n_trials` scaling, and **internal observation transform** (v2.0)
 - **Dual-head ONNX contract** — concatenated output `[μ_std (p), chol_upper (n_chol)]`; scaling and Cholesky diagonals baked into the graph
 - **Single `.so` per package** — emulator alias, SL distribution, and optional debug nodes (`_mean`, `_omega_total`, `_logdens`, …)
 - **Posterior predictive checks** — `randomSample` on `{name}_sl` for one-line PPC (`obs_rep ~ {name}_sl(...)`)
@@ -88,6 +88,7 @@ my_model.jnnx/
   metadata.json       # parameters, capabilities, SL config
   model.onnx          # dual-head export from Step 1
   likelihood.json     # sigma_emu (required for SL)
+  obs_transform.json    # column transforms + StandardScaler (required for SL, v2.0)
   scalers.pkl         # or scalers.json — documents training domain; used at validation
 ```
 
@@ -148,6 +149,20 @@ my_model.jnnx/
 }
 ```
 
+**`obs_transform.json`** (v2.0 — baked into C++ at codegen):
+
+```json
+{
+  "version": "1.0",
+  "summary_names": ["acc", "rt_mean", "rt_var"],
+  "column_transforms": ["identity", "log1p", "log1p"],
+  "scaler_mean": [0.82, 0.389, -2.61],
+  "scaler_scale": [0.12, 0.195, 0.71]
+}
+```
+
+Supported `column_transforms` values: `identity`, `log1p`, `log`, `sqrt`.
+
 Use `jnnx-setup my_model.jnnx` to create or edit metadata interactively. Field reference: [`docs/api/API.md`](docs/api/API.md), [format spec](.cursor/rules/governance/jnnx-format-spec.md).
 
 ### Step 3 — Validate the package
@@ -198,8 +213,8 @@ model {
   a  ~ dunif(0.5, 2.0)
   t0 ~ dunif(0.15, 0.45)
 
-  # Standardized summaries ~ synthetic likelihood
-  obs_std[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
+  # Raw physical summaries ~ synthetic likelihood (transform applied in module)
+  obs[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
 }
 ```
 
@@ -207,12 +222,12 @@ model {
 
 ```python
 data = {
-    "n_trials": 600,                    # trial count per cell (passed to SL node)
-    "obs_std": [z_acc, z_rt_mean, z_rt_var],  # standardized observed summaries
+    "n_trials": 600,
+    "obs": [acc, rt_mean, rt_var],  # raw physical units — no Python TargetTransform step
 }
 ```
 
-Do **not** pass `sigma_emu` in JAGS data — it is baked from `likelihood.json` at compile time.
+Do **not** pass `sigma_emu` or scaler parameters in JAGS data — they are baked at compile time.
 
 **Posterior predictive check:**
 
@@ -225,7 +240,7 @@ obs_rep[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
 ```jags
 mu[1:3] <- ddm3mv_mean(v, a, t0)
 Omega_total[1:3,1:3] <- ddm3mv_omega_total(v, a, t0, n_trials)
-ld <- ddm3mv_logdens(obs_std[1], obs_std[2], obs_std[3], v, a, t0, n_trials)
+ld <- ddm3mv_logdens(obs[1], obs[2], obs[3], v, a, t0, n_trials)
 ```
 
 **py2jags example** ([`demos/ddm3mv_sl_example.py`](demos/ddm3mv_sl_example.py)):
@@ -238,12 +253,12 @@ model {
     v ~ dnorm(0, 0.25)
     a ~ dunif(0.5, 2.0)
     t0 ~ dunif(0.15, 0.45)
-    obs_std[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
+    obs[1:3] ~ ddm3mv_sl(v, a, t0, n_trials)
 }
 """
 chains = py2jags.run_jags(
     model_string=model_code,
-    data_dict={"n_trials": 600, "obs_std": [0.0, 0.0, 0.0]},
+    data_dict={"n_trials": 600, "obs": [0.75, 0.5, 0.25]},
     nchains=4,
     nsamples=1000,
     nadapt=500,

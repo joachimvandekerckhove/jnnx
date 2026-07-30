@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression probe: {name}_logdens must match SciPy/JAGS dmnorm reference."""
+"""Regression probe: {name}_logdens must match SciPy/JAGS dmnorm reference (v2.0 raw obs)."""
 
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ try:
 except ImportError as exc:
     raise SystemExit(f"Missing dependency: {exc}") from exc
 
+from jnnx.capabilities import load_obs_transform
+from jnnx.sl_reference import obs_raw_to_std
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -33,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         "--fixture",
         type=Path,
         default=ROOT / "fixtures" / "ddm3mv_sl_regression.json",
-        help="Regression fixture with obs_std rows",
+        help="Regression fixture with raw obs rows",
     )
     parser.add_argument("--case-index", type=int, default=0, help="Fixture case index")
     parser.add_argument(
@@ -49,11 +52,21 @@ def main() -> None:
     args = parse_args()
     fixture = json.loads(args.fixture.read_text())
     case = fixture["cases"][args.case_index]
-    obs = case["obs_std"]
+    obs_raw = case["obs"]
     theta = case["theta"]
     n_trials = case["n_trials"]
     v, a, t0 = theta
-    data = {"obs_std": obs, "n_trials": n_trials, "n": 1}
+    data = {"obs": obs_raw, "n_trials": n_trials, "n": 1}
+
+    obs_cfg = load_obs_transform(args.package)
+    obs_std, ok = obs_raw_to_std(
+        obs_raw,
+        obs_cfg["column_transforms"],
+        obs_cfg["scaler_mean"],
+        obs_cfg["scaler_scale"],
+    )
+    if not ok:
+        raise SystemExit("FAIL: invalid raw observation for transform")
 
     r = py2jags.run_jags(
         model_string=f"""
@@ -82,14 +95,14 @@ def main() -> None:
     for i in range(omega_work.shape[0]):
         omega_work[i, i] += 1e-10
     ld_jags = float(
-        multivariate_normal.logpdf(obs, mean=mu, cov=np.linalg.inv(omega_work))
+        multivariate_normal.logpdf(obs_std, mean=mu, cov=np.linalg.inv(omega_work))
     )
 
     r2 = py2jags.run_jags(
         model_string=f"""
         model {{
           v <- {v}; a <- {a}; t0 <- {t0}
-          ld <- ddm3mv_logdens(obs_std[1], obs_std[2], obs_std[3], v, a, t0, n_trials)
+          ld <- ddm3mv_logdens(obs[1], obs[2], obs[3], v, a, t0, n_trials)
           dummy ~ dnorm(0, 1) T(0, 0)
         }}""",
         data_dict=data,

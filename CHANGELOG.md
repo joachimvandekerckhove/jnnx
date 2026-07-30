@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-30
+
+### Changed (breaking)
+- **Synthetic likelihood packages require `obs_transform.json`** — JAGS `{name}_sl` and `{name}_logdens` accept **raw physical summary statistics**; column transforms (`identity`, `log1p`, `log`, `sqrt`) + StandardScaler are baked into C++ at codegen
+- Regression fixtures use `obs` (raw) instead of `obs_std`; fixture version `2.0` includes `obs_transform_sha256`
+- `randomSample` and `typicalValue` return raw physical units via inverse transform
+
+### Added
+- `jnnx::sl::obs_raw_to_std` / `obs_std_to_raw` with `JnnxTransform` enum
+- Python mirrors in `jnnx.sl_reference`; unit tests in `tests/test_sl_obs_transform.py`
+- Validation test **8.11** raw obs logdens parity; **8.1** obs_transform checksum
+- Integration test `tests/test_sl_integration_ddm3.py`
+
+### Removed
+- v1.x standardized-observation workflow for SL packages (no backward compatibility mode)
+
 ## [2.0.0a1] - Unreleased
 
 ### Changed (in progress)

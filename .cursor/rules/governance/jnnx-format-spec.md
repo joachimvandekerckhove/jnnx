@@ -266,7 +266,7 @@ Packages declare what JAGS integrations they support via an optional `capabiliti
 | Capability | JAGS surface | Required sidecars |
 |------------|--------------|-------------------|
 | `emulator` (default) | `{function_name}` VectorFunction | `scalers.pkl` |
-| `synthetic_likelihood` | `{name}_sl` ArrayDist + debug nodes | `likelihood.json` |
+| `synthetic_likelihood` | `{name}_sl` ArrayDist + debug nodes | `likelihood.json`, **`obs_transform.json`** |
 
 Rules:
 - `capabilities` omitted → `["emulator"]`
@@ -317,6 +317,20 @@ Rules:
   }
 }
 ```
+
+### `obs_transform.json` (synthetic_likelihood capability, v2.0 required)
+
+```json
+{
+  "version": "1.0",
+  "summary_names": ["acc", "rt_mean", "rt_var"],
+  "column_transforms": ["identity", "log1p", "log1p"],
+  "scaler_mean": [0.82, 0.389, -2.61],
+  "scaler_scale": [0.12, 0.195, 0.71]
+}
+```
+
+Supported `column_transforms`: `identity`, `log1p`, `log`, `sqrt`. Baked into C++ as integer codes; recorded in `build_manifest.json` as `obs_transform_baked` and `obs_transform_sha256`.
 
 ### `likelihood.json` (synthetic_likelihood capability)
 

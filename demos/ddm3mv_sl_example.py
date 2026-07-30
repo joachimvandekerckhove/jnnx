@@ -26,12 +26,12 @@ def main() -> None:
         v ~ dnorm(0, 0.25)
         a ~ dunif(0.5, 2.0)
         t0 ~ dunif(0.15, 0.45)
-        obs_std[1:{p}] ~ ddm3mv_sl(v, a, t0, n_trials)
+        obs[1:{p}] ~ ddm3mv_sl(v, a, t0, n_trials)
     }}
     """
     data = {
         "n_trials": 600,
-        "obs_std": [0.0, 0.0, 0.0],
+        "obs": [0.75, 0.5, 0.25],
     }
     chains = py2jags.run_jags(
         model_string=model_code,
