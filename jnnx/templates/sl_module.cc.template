@@ -1,5 +1,5 @@
 // JAGS synthetic-likelihood module for {{MODULE_NAME}}
-// Auto-generated from jnnx sl_module.cc.template (v1.1)
+// Auto-generated from jnnx sl_module.cc.template (v2.0)
 
 #include <module/Module.h>
 #include <function/VectorFunction.h>
@@ -30,6 +30,9 @@ static const int kOutputDim = {{OUTPUT_DIM}};
 static const double kInputMin[kInputDim] = {{INPUT_MIN}};
 static const double kInputMax[kInputDim] = {{INPUT_MAX}};
 static const double kSigmaEmu[kP * kP] = {{SIGMA_EMU_FLAT}};
+static const int kColTransform[kP] = {{COL_TRANSFORM}};
+static const double kObsScalerMean[kP] = {{OBS_SCALER_MEAN}};
+static const double kObsScalerScale[kP] = {{OBS_SCALER_SCALE}};
 
 #ifdef JNNX_DEBUG
 static thread_local int g_onnx_forward_calls = 0;
@@ -316,8 +319,14 @@ private:
 };
 
 static double sl_logdens_value(const ForwardResult& out, double n_trials,
-                               const std::vector<double>& obs)
+                               const std::vector<double>& obs_raw)
 {
+    std::vector<double> obs_std(static_cast<size_t>(kP));
+    if (!jnnx::sl::obs_raw_to_std(
+            obs_raw.data(), obs_std.data(), kP, kColTransform,
+            kObsScalerMean, kObsScalerScale)) {
+        return -std::numeric_limits<double>::infinity();
+    }
     std::vector<double> sigma(static_cast<size_t>(kP * kP));
     for (int i = 0; i < kP * kP; ++i) {
         sigma[static_cast<size_t>(i)] = kSigmaEmu[i];
@@ -326,7 +335,7 @@ static double sl_logdens_value(const ForwardResult& out, double n_trials,
     if (!jnnx::sl::omega_total_from_chol(out.chol_upper, kP, n_trials, sigma, omega_total)) {
         return -std::numeric_limits<double>::infinity();
     }
-    return jnnx::sl::mvn_logdens_precision(obs, out.mu, omega_total, kP);
+    return jnnx::sl::mvn_logdens_precision(obs_std, out.mu, omega_total, kP);
 }
 
 class LogdensFunction : public ScalarFunction
@@ -461,8 +470,17 @@ public:
                 }
                 return;
             }
+            std::vector<double> raw(static_cast<size_t>(kP));
+            if (!jnnx::sl::obs_std_to_raw(
+                    sample.data(), raw.data(), kP, kColTransform,
+                    kObsScalerMean, kObsScalerScale)) {
+                for (unsigned int i = 0; i < length; ++i) {
+                    x[i] = std::numeric_limits<double>::quiet_NaN();
+                }
+                return;
+            }
             for (int i = 0; i < kP; ++i) {
-                x[static_cast<size_t>(i)] = sample[static_cast<size_t>(i)];
+                x[static_cast<size_t>(i)] = raw[static_cast<size_t>(i)];
             }
         } catch (const std::exception& e) {
             std::cerr << "Error in SL randomSample: " << e.what() << std::endl;
@@ -489,8 +507,17 @@ public:
             theta[static_cast<size_t>(i)] = *parameters[static_cast<size_t>(i)];
         }
         const ForwardResult out = engine_->forward(theta);
+        std::vector<double> raw(static_cast<size_t>(kP));
+        if (!jnnx::sl::obs_std_to_raw(
+                out.mu.data(), raw.data(), kP, kColTransform,
+                kObsScalerMean, kObsScalerScale)) {
+            for (unsigned int i = 0; i < length; ++i) {
+                x[i] = 0.0;
+            }
+            return;
+        }
         for (int i = 0; i < kP; ++i) {
-            x[static_cast<size_t>(i)] = out.mu[static_cast<size_t>(i)];
+            x[static_cast<size_t>(i)] = raw[static_cast<size_t>(i)];
         }
     }
 
