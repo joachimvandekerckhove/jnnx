@@ -61,15 +61,15 @@ class TestSlMathReference(unittest.TestCase):
         p = data["n_summaries"]
         omega = omega_total_from_chol(out[p:], case["n_trials"], sigma_emu, p)
         mu = out[:p]
-    omega_work = np.asarray(omega, dtype=np.float64).copy()
-    for i in range(omega_work.shape[0]):
-        omega_work[i, i] += 1e-10
-    got = mvn_logdens_precision(case["obs_std"], mu, omega, p)
-    ref = float(
-        multivariate_normal.logpdf(
-            case["obs_std"], mean=mu, cov=np.linalg.inv(omega_work)
+        omega_work = np.asarray(omega, dtype=np.float64).copy()
+        for i in range(omega_work.shape[0]):
+            omega_work[i, i] += 1e-10
+        got = mvn_logdens_precision(case["obs_std"], mu, omega, p)
+        ref = float(
+            multivariate_normal.logpdf(
+                case["obs_std"], mean=mu, cov=np.linalg.inv(omega_work)
+            )
         )
-    )
         self.assertLess(abs(got - ref), data["tolerance"]["atol"])
 
     def test_precision_quad_differs_from_solve_form(self):
